@@ -1,0 +1,10 @@
+package com.example.squadlink.navigation
+
+sealed class Screen(val route: String) {
+    object Home : Screen("home")
+    object Map : Screen("map")
+    object Squad : Screen("squad")
+    object Profile : Screen("profile")
+    object JoinGame : Screen("join_game")
+    object GameMaster : Screen("game_master")
+}
