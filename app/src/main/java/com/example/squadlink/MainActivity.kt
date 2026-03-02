@@ -38,7 +38,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Screens that should show the bottom navigation bar
+
 private val bottomNavScreens = listOf(
     Screen.Home.route,
     Screen.Map.route,

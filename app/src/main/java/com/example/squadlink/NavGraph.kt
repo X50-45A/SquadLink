@@ -26,10 +26,8 @@ fun NavGraph(
                 onCreateGame = { navController.navigate(Screen.GameMaster.route) }
             )
         }
-    }
-}
 
-     /*   composable(Screen.JoinGame.route) {
+        composable(Screen.JoinGame.route) {
             JoinGameScreen(
                 onGameJoined = {
                     navController.navigate(Screen.Map.route) {
@@ -56,5 +54,6 @@ fun NavGraph(
             GameMasterScreen(
                 onBack = { navController.popBackStack() }
             )
-        }*/
-
+        }
+    }
+}
