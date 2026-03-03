@@ -7,7 +7,7 @@ import androidx.navigation.compose.composable
 import com.example.squadlink.ui.screens.GameMasterScreen
 import com.example.squadlink.ui.screens.HomeScreen
 import com.example.squadlink.ui.screens.JoinGameScreen
-import com.example.squadlink.ui.screens.MapScreen
+import com.example.squadlink.ui.map.MapScreen
 import com.example.squadlink.ui.screens.ProfileScreen
 import com.example.squadlink.ui.screens.SquadScreen
 
