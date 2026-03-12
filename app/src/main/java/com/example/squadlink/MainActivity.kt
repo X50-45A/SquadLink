@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.AccountBox
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -58,7 +59,8 @@ private val bottomNavScreens = listOf(
     Screen.Home.route,
     Screen.Map.route,
     Screen.Squad.route,
-    Screen.Profile.route
+    Screen.Profile.route,
+    Screen.Settings.route
 )
 
 data class BottomNavItem(
@@ -72,6 +74,7 @@ val bottomNavItems = listOf(
     BottomNavItem("Mapa", Icons.Default.LocationOn, Screen.Map.route),
     BottomNavItem("Escuadrón", Icons.Default.AccountBox, Screen.Squad.route),
     BottomNavItem("Perfil", Icons.Default.Person, Screen.Profile.route),
+    BottomNavItem("Ajustes", Icons.Default.Settings, Screen.Settings.route),
 )
 
 @Composable

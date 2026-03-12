@@ -1,15 +1,20 @@
 package com.example.squadlink.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.squadlink.data.UserPreferencesRepository
 import com.example.squadlink.ui.screens.GameMasterScreen
 import com.example.squadlink.ui.screens.HomeScreen
 import com.example.squadlink.ui.screens.JoinGameScreen
 import com.example.squadlink.ui.map.MapScreen
 import com.example.squadlink.ui.screens.ProfileScreen
 import com.example.squadlink.ui.screens.SquadScreen
+import com.example.squadlink.ui.settings.SettingsScreen
+import com.example.squadlink.ui.settings.SettingsViewModel
 
 @Composable
 fun NavGraph(
@@ -48,6 +53,17 @@ fun NavGraph(
 
         composable(Screen.Profile.route) {
             ProfileScreen()
+        }
+
+        composable(Screen.Settings.route) {
+            val context = LocalContext.current
+            val vm: SettingsViewModel = viewModel(
+                factory = SettingsViewModel.Factory(UserPreferencesRepository(context))
+            )
+            SettingsScreen(
+                vm = vm,
+                onBack = { navController.popBackStack() }
+            )
         }
 
         composable(Screen.GameMaster.route) {
