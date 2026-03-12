@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.model.*
 import com.google.maps.android.compose.*
 
@@ -96,7 +97,7 @@ private fun LandscapeMapLayout(
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
             TacticalGoogleMap(Modifier.fillMaxSize(), state, cameraState, mapStyle, field)
             if (state.gridVisible) Canvas(Modifier.fillMaxSize()) { drawTacticalGrid(this) }
-            AnimatedVisibility(
+            androidx.compose.animation.AnimatedVisibility(
                 visible = state.showOutOfBoundsAlert,
                 modifier = Modifier.align(Alignment.TopCenter),
                 enter = slideInVertically() + fadeIn(),
@@ -142,15 +143,18 @@ private fun TacticalGoogleMap(
             mapToolbarEnabled = false
         )
     ) {
-        Polygon(points = field.perimeter, fillColor = FieldFill, strokeColor = FieldStroke,
-            strokeWidth = 4f, geodesic = false)
+        Polygon(
+            points = field.perimeter, fillColor = FieldFill, strokeColor = FieldStroke,
+            strokeWidth = 4f, geodesic = false
+        )
 
         state.players.forEach { player ->
             Marker(
                 state = MarkerState(position = player.position),
                 title = player.name, snippet = player.role,
                 icon = bitmapDescriptorFromColor(
-                    if (player.isOutOfBounds) OutOfBoundsRed else Color(0xFF00E676))
+                    if (player.isOutOfBounds) OutOfBoundsRed else Color(0xFF00E676)
+                )
             )
         }
 
@@ -158,11 +162,13 @@ private fun TacticalGoogleMap(
             val color = when (marker.type) {
                 MarkerType.OBJECTIVE -> ObjectiveYellow
                 MarkerType.SAFE_ZONE -> SafeZoneBlue
-                MarkerType.DANGER    -> OutOfBoundsRed
-                MarkerType.CUSTOM    -> Color.White
+                MarkerType.DANGER -> OutOfBoundsRed
+                MarkerType.CUSTOM -> Color.White
             }
-            Marker(state = MarkerState(position = marker.position),
-                title = marker.label, icon = bitmapDescriptorFromColor(color))
+            Marker(
+                state = MarkerState(position = marker.position),
+                title = marker.label, icon = bitmapDescriptorFromColor(color)
+            )
         }
     }
 }
