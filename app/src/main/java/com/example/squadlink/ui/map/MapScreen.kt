@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -24,34 +25,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.squadlink.model.AirsoftField
-import com.example.squadlink.model.GeoPoint
-import org.maplibre.android.MapLibre
-import org.maplibre.android.camera.CameraPosition
-import org.maplibre.android.geometry.LatLng as MapLibreLatLng
-import org.maplibre.android.maps.MapLibreMap
-import org.maplibre.android.maps.MapView
-import org.maplibre.android.maps.Style
-import org.maplibre.android.style.layers.CircleLayer
-import org.maplibre.android.style.layers.FillLayer
-import org.maplibre.android.style.layers.LineLayer
-import org.maplibre.android.style.layers.PropertyFactory
-import org.maplibre.android.style.sources.GeoJsonSource
-import org.maplibre.geojson.Feature
-import org.maplibre.geojson.FeatureCollection
-import org.maplibre.geojson.Point
-import org.maplibre.geojson.Polygon
+import com.google.android.gms.location.*
+import com.google.android.gms.maps.model.*
+import com.google.maps.android.compose.*
+import kotlinx.coroutines.delay
 
 private val GridColor = Color(0x2200FF41)
 private val FieldFill = Color(0x1A4CAF50)
@@ -59,28 +46,6 @@ private val FieldStroke = Color(0xFF76FF03)
 private val OutOfBoundsRed = Color(0xCCF44336)
 private val ObjectiveYellow = Color(0xFFFFD600)
 private val SafeZoneBlue = Color(0xFF29B6F6)
-private val PlayerGreen = Color(0xFF00E676)
-
-private const val MapStyleUrl = "https://demotiles.maplibre.org/style.json"
-
-private const val FieldSourceId = "field-source"
-private const val FieldFillLayerId = "field-fill-layer"
-private const val FieldLineLayerId = "field-line-layer"
-
-private const val PlayersInSourceId = "players-in-source"
-private const val PlayersOutSourceId = "players-out-source"
-private const val PlayersInLayerId = "players-in-layer"
-private const val PlayersOutLayerId = "players-out-layer"
-
-private const val ObjectiveSourceId = "objective-source"
-private const val SafeZoneSourceId = "safezone-source"
-private const val DangerSourceId = "danger-source"
-private const val CustomSourceId = "custom-source"
-
-private const val ObjectiveLayerId = "objective-layer"
-private const val SafeZoneLayerId = "safezone-layer"
-private const val DangerLayerId = "danger-layer"
-private const val CustomLayerId = "custom-layer"
 
 @Composable
 fun MapScreen(
@@ -91,12 +56,21 @@ fun MapScreen(
     val selectionState by fieldVm.uiState.collectAsState()
     val selectedField = selectionState.selectedField
     val field = mapState.field
+    val ctx = LocalContext.current
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
+    val mapStyle = remember {
+        runCatching {
+            MapStyleOptions.loadRawResourceStyle(ctx, com.example.squadlink.R.raw.map_style_tactical)
+        }.getOrNull()
+    }
 
     val locationPermissionState = rememberLocationPermissionState()
     var requestedLocationPermission by rememberSaveable { mutableStateOf(false) }
     var showFieldPicker by rememberSaveable { mutableStateOf(field == null) }
+    var mapLoaded by remember { mutableStateOf(false) }
+    var showMapError by remember { mutableStateOf(false) }
 
     LaunchedEffect(locationPermissionState.hasPermission, requestedLocationPermission) {
         if (!locationPermissionState.hasPermission && !requestedLocationPermission) {
@@ -113,6 +87,11 @@ fun MapScreen(
             showFieldPicker = false
         }
     }
+
+    LocationUpdatesEffect(
+        enabled = locationPermissionState.hasPermission,
+        onLocation = mapVm::onPlayerLocationUpdate
+    )
 
     if (field == null) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -131,22 +110,41 @@ fun MapScreen(
         return
     }
 
+    val cameraState = rememberCameraPositionState {
+        position = CameraPosition.fromLatLngZoom(field.center, field.defaultZoom)
+    }
+
+    LaunchedEffect(mapLoaded) {
+        if (!mapLoaded) {
+            delay(6000L)
+            if (!mapLoaded) showMapError = true
+        } else {
+            showMapError = false
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         if (isLandscape) {
             LandscapeMapLayout(
                 state = mapState,
+                cameraState = cameraState,
+                mapStyle = mapStyle,
                 field = field,
                 hasLocationPermission = locationPermissionState.hasPermission,
                 onToggleGrid = mapVm::toggleGrid,
-                onDismissAlert = mapVm::dismissOutOfBoundsAlert
+                onDismissAlert = mapVm::dismissOutOfBoundsAlert,
+                onMapLoaded = { mapLoaded = true }
             )
         } else {
             PortraitMapLayout(
                 state = mapState,
+                cameraState = cameraState,
+                mapStyle = mapStyle,
                 field = field,
                 hasLocationPermission = locationPermissionState.hasPermission,
                 onToggleGrid = mapVm::toggleGrid,
-                onDismissAlert = mapVm::dismissOutOfBoundsAlert
+                onDismissAlert = mapVm::dismissOutOfBoundsAlert,
+                onMapLoaded = { mapLoaded = true }
             )
         }
 
@@ -174,6 +172,13 @@ fun MapScreen(
             LocationPermissionCard(
                 modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
                 onRequestPermission = locationPermissionState.requestPermission
+            )
+        }
+
+        if (showMapError) {
+            MapLoadErrorCard(
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 96.dp, start = 16.dp, end = 16.dp),
+                onRetry = { mapLoaded = false; showMapError = false }
             )
         }
     }
@@ -292,18 +297,23 @@ private fun ChangeFieldButton(modifier: Modifier, onClick: () -> Unit) {
 @Composable
 private fun PortraitMapLayout(
     state: MapUiState,
+    cameraState: CameraPositionState,
+    mapStyle: MapStyleOptions,
     field: AirsoftField,
     hasLocationPermission: Boolean,
     onToggleGrid: () -> Unit,
-    onDismissAlert: () -> Unit
+    onDismissAlert: () -> Unit,
+    onMapLoaded: () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
-        MapLibreMap(
+        TacticalGoogleMap(
             modifier = Modifier.fillMaxSize(),
+            state = state,
+            cameraState = cameraState,
+            mapStyle = mapStyle,
             field = field,
-            players = state.players,
-            tacticalMarkers = state.tacticalMarkers,
-            hasLocationPermission = hasLocationPermission
+            hasLocationPermission = hasLocationPermission,
+            onMapLoaded = onMapLoaded
         )
         if (state.gridVisible) Canvas(Modifier.fillMaxSize()) { drawTacticalGrid(this) }
         MapHud(
@@ -325,22 +335,27 @@ private fun PortraitMapLayout(
 @Composable
 private fun LandscapeMapLayout(
     state: MapUiState,
+    cameraState: CameraPositionState,
+    mapStyle: MapStyleOptions?,
     field: AirsoftField,
     hasLocationPermission: Boolean,
     onToggleGrid: () -> Unit,
-    onDismissAlert: () -> Unit
+    onDismissAlert: () -> Unit,
+    onMapLoaded: () -> Unit
 ) {
     Row(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-            MapLibreMap(
+            TacticalGoogleMap(
                 modifier = Modifier.fillMaxSize(),
+                state = state,
+                cameraState = cameraState,
+                mapStyle = mapStyle,
                 field = field,
-                players = state.players,
-                tacticalMarkers = state.tacticalMarkers,
-                hasLocationPermission = hasLocationPermission
+                hasLocationPermission = hasLocationPermission,
+                onMapLoaded = onMapLoaded
             )
             if (state.gridVisible) Canvas(Modifier.fillMaxSize()) { drawTacticalGrid(this) }
-            AnimatedVisibility(
+            androidx.compose.animation.AnimatedVisibility(
                 visible = state.showOutOfBoundsAlert,
                 modifier = Modifier.align(Alignment.TopCenter),
                 enter = slideInVertically() + fadeIn(),
@@ -375,48 +390,85 @@ private fun LandscapeMapLayout(
     }
 }
 
-@Suppress("UNUSED_PARAMETER")
 @Composable
-private fun MapLibreMap(
+private fun TacticalGoogleMap(
     modifier: Modifier,
+    state: MapUiState,
+    cameraState: CameraPositionState,
+    mapStyle: MapStyleOptions,
     field: AirsoftField,
-    players: List<PlayerMarker>,
-    tacticalMarkers: List<TacticalMarker>,
-    hasLocationPermission: Boolean
+    hasLocationPermission: Boolean,
+    onMapLoaded: () -> Unit
 ) {
-    val mapView = rememberMapViewWithLifecycle()
-    val mapState = remember { mutableStateOf<MapLibreMap?>(null) }
-
-    LaunchedEffect(mapView) {
-        mapView.getMapAsync { map ->
-            mapState.value = map
-            map.setStyle(Style.Builder().fromUri(MapStyleUrl)) { style ->
-                ensureLayers(style)
-                updateStyle(style, field, players, tacticalMarkers)
-            }
-        }
-    }
-
-    LaunchedEffect(field) {
-        val map = mapState.value ?: return@LaunchedEffect
-        map.cameraPosition = CameraPosition.Builder()
-            .target(field.center.toMapLibre())
-            .zoom(field.defaultZoom.toDouble())
-            .build()
-    }
-
-    LaunchedEffect(field, players, tacticalMarkers) {
-        val map = mapState.value ?: return@LaunchedEffect
-        map.getStyle { style ->
-            ensureLayers(style)
-            updateStyle(style, field, players, tacticalMarkers)
-        }
-    }
-
-    AndroidView(
+    GoogleMap(
         modifier = modifier,
-        factory = { mapView }
-    )
+        cameraPositionState = cameraState,
+        properties = MapProperties(
+            mapStyleOptions = mapStyle,
+            isMyLocationEnabled = hasLocationPermission
+        ),
+        uiSettings = MapUiSettings(
+            zoomControlsEnabled = false,
+            myLocationButtonEnabled = hasLocationPermission,
+            mapToolbarEnabled = false
+        ),
+        onMapLoaded = onMapLoaded
+    ) {
+        Polygon(
+            points = field.perimeter,
+            fillColor = FieldFill,
+            strokeColor = FieldStroke,
+            strokeWidth = 4f,
+            geodesic = false
+        )
+
+        state.players.forEach { player ->
+            Marker(
+                state = MarkerState(position = player.position),
+                title = player.name,
+                snippet = player.role,
+                icon = bitmapDescriptorFromColor(
+                    if (player.isOutOfBounds) OutOfBoundsRed else Color(0xFF00E676)
+                )
+            )
+        }
+
+        state.tacticalMarkers.forEach { marker ->
+            val color = when (marker.type) {
+                MarkerType.OBJECTIVE -> ObjectiveYellow
+                MarkerType.SAFE_ZONE -> SafeZoneBlue
+                MarkerType.DANGER -> OutOfBoundsRed
+                MarkerType.CUSTOM -> Color.White
+            }
+            Marker(
+                state = MarkerState(position = marker.position),
+                title = marker.label,
+                icon = bitmapDescriptorFromColor(color)
+            )
+        }
+    }
+}
+
+@Composable
+private fun MapLoadErrorCard(
+    modifier: Modifier,
+    onRetry: () -> Unit
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xCCB71C1C)),
+        shape = RoundedCornerShape(10.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("El mapa no ha cargado", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "Revisa la API key, los SHA-1 en Google Cloud y que el emulador tenga Google Play Services.",
+                color = Color.White,
+                style = MaterialTheme.typography.bodySmall
+            )
+            TextButton(onClick = onRetry) { Text("Reintentar", color = Color.White) }
+        }
+    }
 }
 
 @Composable
@@ -492,6 +544,36 @@ private fun LocationPermissionCard(
     }
 }
 
+@Composable
+private fun LocationUpdatesEffect(
+    enabled: Boolean,
+    onLocation: (LatLng) -> Unit
+) {
+    val context = LocalContext.current
+    val client = remember { LocationServices.getFusedLocationProviderClient(context) }
+    val request = remember {
+        LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 2000L)
+            .setMinUpdateIntervalMillis(1000L)
+            .setMaxUpdateDelayMillis(4000L)
+            .build()
+    }
+    val callback = remember {
+        object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                val location = result.lastLocation ?: return
+                onLocation(LatLng(location.latitude, location.longitude))
+            }
+        }
+    }
+
+    DisposableEffect(enabled) {
+        if (enabled) {
+            client.requestLocationUpdates(request, callback, Looper.getMainLooper())
+        }
+        onDispose { client.removeLocationUpdates(callback) }
+    }
+}
+
 private fun drawTacticalGrid(scope: DrawScope) {
     val step = 80f
     var x = 0f
@@ -504,6 +586,20 @@ private fun drawTacticalGrid(scope: DrawScope) {
         scope.drawLine(GridColor, Offset(0f, y), Offset(scope.size.width, y), strokeWidth = 0.5f)
         y += step
     }
+}
+
+private fun bitmapDescriptorFromColor(color: Color): BitmapDescriptor {
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(
+        android.graphics.Color.argb(
+            (color.alpha * 255).toInt(),
+            (color.red * 255).toInt(),
+            (color.green * 255).toInt(),
+            (color.blue * 255).toInt()
+        ),
+        hsv
+    )
+    return BitmapDescriptorFactory.defaultMarker(hsv[0])
 }
 
 private data class LocationPermissionState(
@@ -547,135 +643,4 @@ private fun hasLocationPermission(context: Context): Boolean {
     return LocationPermissions.any { permission ->
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
     }
-}
-
-@Composable
-private fun rememberMapViewWithLifecycle(): MapView {
-    val context = LocalContext.current
-    MapLibre.getInstance(context)
-    val mapView = remember { MapView(context).apply { onCreate(null) } }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-
-    DisposableEffect(lifecycle, mapView) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_START -> mapView.onStart()
-                Lifecycle.Event.ON_RESUME -> mapView.onResume()
-                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
-                Lifecycle.Event.ON_STOP -> mapView.onStop()
-                Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
-                else -> Unit
-            }
-        }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
-    }
-
-    return mapView
-}
-
-private fun ensureLayers(style: Style) {
-    if (style.getSource(FieldSourceId) == null) {
-        style.addSource(GeoJsonSource(FieldSourceId))
-    }
-    if (style.getLayer(FieldFillLayerId) == null) {
-        val fill = FillLayer(FieldFillLayerId, FieldSourceId)
-            .withProperties(
-                PropertyFactory.fillColor(FieldFill.toArgb()),
-                PropertyFactory.fillOpacity(0.2f)
-            )
-        style.addLayer(fill)
-    }
-    if (style.getLayer(FieldLineLayerId) == null) {
-        val line = LineLayer(FieldLineLayerId, FieldSourceId)
-            .withProperties(
-                PropertyFactory.lineColor(FieldStroke.toArgb()),
-                PropertyFactory.lineWidth(3f)
-            )
-        style.addLayer(line)
-    }
-
-    ensureCircleLayer(style, PlayersInSourceId, PlayersInLayerId, PlayerGreen.toArgb(), 5f)
-    ensureCircleLayer(style, PlayersOutSourceId, PlayersOutLayerId, OutOfBoundsRed.toArgb(), 6f)
-    ensureCircleLayer(style, ObjectiveSourceId, ObjectiveLayerId, ObjectiveYellow.toArgb(), 7f)
-    ensureCircleLayer(style, SafeZoneSourceId, SafeZoneLayerId, SafeZoneBlue.toArgb(), 7f)
-    ensureCircleLayer(style, DangerSourceId, DangerLayerId, OutOfBoundsRed.toArgb(), 7f)
-    ensureCircleLayer(style, CustomSourceId, CustomLayerId, Color.White.toArgb(), 7f)
-}
-
-private fun ensureCircleLayer(
-    style: Style,
-    sourceId: String,
-    layerId: String,
-    color: Int,
-    radius: Float
-) {
-    if (style.getSource(sourceId) == null) {
-        style.addSource(GeoJsonSource(sourceId))
-    }
-    if (style.getLayer(layerId) == null) {
-        val layer = CircleLayer(layerId, sourceId)
-            .withProperties(
-                PropertyFactory.circleColor(color),
-                PropertyFactory.circleRadius(radius),
-                PropertyFactory.circleOpacity(0.85f)
-            )
-        style.addLayer(layer)
-    }
-}
-
-private fun updateStyle(
-    style: Style,
-    field: AirsoftField,
-    players: List<PlayerMarker>,
-    tacticalMarkers: List<TacticalMarker>
-) {
-    val fieldFeature = FeatureCollection.fromFeature(fieldPolygonFeature(field))
-    (style.getSourceAs<GeoJsonSource>(FieldSourceId))?.setGeoJson(fieldFeature)
-
-    val playersIn = players.filter { !it.isOutOfBounds }.map { pointFeature(it.position) }
-    val playersOut = players.filter { it.isOutOfBounds }.map { pointFeature(it.position) }
-    (style.getSourceAs<GeoJsonSource>(PlayersInSourceId))?.setGeoJson(
-        FeatureCollection.fromFeatures(playersIn)
-    )
-    (style.getSourceAs<GeoJsonSource>(PlayersOutSourceId))?.setGeoJson(
-        FeatureCollection.fromFeatures(playersOut)
-    )
-
-    val objectives = tacticalMarkers.filter { it.type == MarkerType.OBJECTIVE }.map { pointFeature(it.position) }
-    val safeZones = tacticalMarkers.filter { it.type == MarkerType.SAFE_ZONE }.map { pointFeature(it.position) }
-    val dangers = tacticalMarkers.filter { it.type == MarkerType.DANGER }.map { pointFeature(it.position) }
-    val customs = tacticalMarkers.filter { it.type == MarkerType.CUSTOM }.map { pointFeature(it.position) }
-
-    (style.getSourceAs<GeoJsonSource>(ObjectiveSourceId))?.setGeoJson(
-        FeatureCollection.fromFeatures(objectives)
-    )
-    (style.getSourceAs<GeoJsonSource>(SafeZoneSourceId))?.setGeoJson(
-        FeatureCollection.fromFeatures(safeZones)
-    )
-    (style.getSourceAs<GeoJsonSource>(DangerSourceId))?.setGeoJson(
-        FeatureCollection.fromFeatures(dangers)
-    )
-    (style.getSourceAs<GeoJsonSource>(CustomSourceId))?.setGeoJson(
-        FeatureCollection.fromFeatures(customs)
-    )
-}
-
-private fun fieldPolygonFeature(field: AirsoftField): Feature {
-    val ring = field.perimeter
-        .map { Point.fromLngLat(it.longitude, it.latitude) }
-        .toMutableList()
-    if (ring.isNotEmpty() && ring.first() != ring.last()) {
-        ring.add(ring.first())
-    }
-    val polygon = Polygon.fromLngLats(listOf(ring))
-    return Feature.fromGeometry(polygon)
-}
-
-private fun pointFeature(point: GeoPoint): Feature {
-    return Feature.fromGeometry(Point.fromLngLat(point.longitude, point.latitude))
-}
-
-private fun GeoPoint.toMapLibre(): MapLibreLatLng {
-    return MapLibreLatLng(latitude, longitude)
 }

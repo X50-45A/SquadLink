@@ -3,8 +3,8 @@ package com.example.squadlink.ui.map
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.squadlink.model.AirsoftField
-import com.example.squadlink.model.GeoPoint
 import com.example.squadlink.util.isInsideGeofence
+import com.google.android.gms.maps.model.LatLng
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,14 +15,14 @@ data class PlayerMarker(
     val id: String,
     val name: String,
     val role: String,
-    val position: GeoPoint,
+    val position: LatLng,
     val isOutOfBounds: Boolean = false
 )
 
 data class TacticalMarker(
     val id: String,
     val label: String,
-    val position: GeoPoint,
+    val position: LatLng,
     val type: MarkerType
 )
 
@@ -58,7 +58,7 @@ class MapViewModel : ViewModel() {
     }
 
     /** Called every time the GPS updates the current player's location */
-    fun onPlayerLocationUpdate(position: GeoPoint) {
+    fun onPlayerLocationUpdate(position: LatLng) {
         viewModelScope.launch {
             val field = _uiState.value.field ?: return@launch
             val outOfBounds = !isInsideGeofence(position, field.perimeter)

@@ -1,12 +1,12 @@
 package com.example.squadlink.util
 
-import com.example.squadlink.model.GeoPoint
+import com.google.android.gms.maps.model.LatLng
 
 /**
  * Ray-casting algorithm to check if a point is inside a polygon.
  * Works correctly for convex and concave field perimeters.
  */
-fun isInsideGeofence(point: GeoPoint, polygon: List<GeoPoint>): Boolean {
+fun isInsideGeofence(point: LatLng, polygon: List<LatLng>): Boolean {
     if (polygon.size < 3) return false
     var inside = false
     var j = polygon.lastIndex
