@@ -56,15 +56,10 @@ fun MapScreen(
     val selectionState by fieldVm.uiState.collectAsState()
     val selectedField = selectionState.selectedField
     val field = mapState.field
-    val ctx = LocalContext.current
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    val mapStyle = remember {
-        runCatching {
-            MapStyleOptions.loadRawResourceStyle(ctx, com.example.squadlink.R.raw.map_style_tactical)
-        }.getOrNull()
-    }
+    val mapStyle: MapStyleOptions? = null
 
     val locationPermissionState = rememberLocationPermissionState()
     var requestedLocationPermission by rememberSaveable { mutableStateOf(false) }
@@ -298,7 +293,7 @@ private fun ChangeFieldButton(modifier: Modifier, onClick: () -> Unit) {
 private fun PortraitMapLayout(
     state: MapUiState,
     cameraState: CameraPositionState,
-    mapStyle: MapStyleOptions,
+    mapStyle: MapStyleOptions?,
     field: AirsoftField,
     hasLocationPermission: Boolean,
     onToggleGrid: () -> Unit,
@@ -395,7 +390,7 @@ private fun TacticalGoogleMap(
     modifier: Modifier,
     state: MapUiState,
     cameraState: CameraPositionState,
-    mapStyle: MapStyleOptions,
+    mapStyle: MapStyleOptions?,
     field: AirsoftField,
     hasLocationPermission: Boolean,
     onMapLoaded: () -> Unit
