@@ -21,6 +21,7 @@ class UserPreferencesRepository(private val context: Context) {
         val KEY_PLAYER_NAME    = stringPreferencesKey("player_name")
         val KEY_SHOW_GRID      = booleanPreferencesKey("show_grid")
         val KEY_KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
+        val KEY_FIELD_ID       = stringPreferencesKey("selected_field_id")
     }
 
     val darkTheme: Flow<Boolean> = context.dataStore.data
@@ -34,6 +35,9 @@ class UserPreferencesRepository(private val context: Context) {
 
     val keepScreenOn: Flow<Boolean> = context.dataStore.data
         .map { prefs -> prefs[KEY_KEEP_SCREEN_ON] ?: true }
+
+    val selectedFieldId: Flow<String> = context.dataStore.data
+        .map { prefs -> prefs[KEY_FIELD_ID] ?: "" }
 
     suspend fun setDarkTheme(enabled: Boolean) {
         context.dataStore.edit { it[KEY_DARK_THEME] = enabled }
@@ -49,5 +53,13 @@ class UserPreferencesRepository(private val context: Context) {
 
     suspend fun setKeepScreenOn(enabled: Boolean) {
         context.dataStore.edit { it[KEY_KEEP_SCREEN_ON] = enabled }
+    }
+
+    suspend fun setSelectedFieldId(fieldId: String) {
+        context.dataStore.edit { it[KEY_FIELD_ID] = fieldId }
+    }
+
+    suspend fun clearSelectedField() {
+        context.dataStore.edit { it.remove(KEY_FIELD_ID) }
     }
 }

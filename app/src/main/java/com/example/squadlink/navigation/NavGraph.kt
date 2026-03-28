@@ -11,6 +11,7 @@ import com.example.squadlink.ui.screens.GameMasterScreen
 import com.example.squadlink.ui.screens.HomeScreen
 import com.example.squadlink.ui.screens.JoinGameScreen
 import com.example.squadlink.ui.map.MapScreen
+import com.example.squadlink.ui.map.FieldSelectionViewModel
 import com.example.squadlink.ui.screens.ProfileScreen
 import com.example.squadlink.ui.screens.SquadScreen
 import com.example.squadlink.ui.settings.SettingsScreen
@@ -33,7 +34,12 @@ fun NavGraph(
         }
 
         composable(Screen.JoinGame.route) {
+            val context = LocalContext.current
+            val fieldVm: FieldSelectionViewModel = viewModel(
+                factory = FieldSelectionViewModel.Factory(UserPreferencesRepository(context))
+            )
             JoinGameScreen(
+                fieldVm = fieldVm,
                 onGameJoined = {
                     navController.navigate(Screen.Map.route) {
                         popUpTo(Screen.Home.route)
@@ -44,7 +50,11 @@ fun NavGraph(
         }
 
         composable(Screen.Map.route) {
-            MapScreen()
+            val context = LocalContext.current
+            val fieldVm: FieldSelectionViewModel = viewModel(
+                factory = FieldSelectionViewModel.Factory(UserPreferencesRepository(context))
+            )
+            MapScreen(fieldVm = fieldVm)
         }
 
         composable(Screen.Squad.route) {

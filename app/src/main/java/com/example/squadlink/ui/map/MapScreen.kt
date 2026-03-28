@@ -49,8 +49,8 @@ private val SafeZoneBlue = Color(0xFF29B6F6)
 
 @Composable
 fun MapScreen(
-    mapVm: MapViewModel = viewModel(),
-    fieldVm: FieldSelectionViewModel = viewModel()
+    fieldVm: FieldSelectionViewModel,
+    mapVm: MapViewModel = viewModel()
 ) {
     val mapState by mapVm.uiState.collectAsState()
     val selectionState by fieldVm.uiState.collectAsState()
@@ -66,6 +66,8 @@ fun MapScreen(
     var showFieldPicker by rememberSaveable { mutableStateOf(field == null) }
     var mapLoaded by remember { mutableStateOf(false) }
     var showMapError by remember { mutableStateOf(false) }
+    var markerMode by remember { mutableStateOf<MarkerType?>(null) }
+    var customMarkerLabel by remember { mutableStateOf("") }
 
     LaunchedEffect(locationPermissionState.hasPermission, requestedLocationPermission) {
         if (!locationPermissionState.hasPermission && !requestedLocationPermission) {
@@ -128,7 +130,13 @@ fun MapScreen(
                 hasLocationPermission = locationPermissionState.hasPermission,
                 onToggleGrid = mapVm::toggleGrid,
                 onDismissAlert = mapVm::dismissOutOfBoundsAlert,
-                onMapLoaded = { mapLoaded = true }
+                onMapLoaded = { mapLoaded = true },
+                onMapClick = { latLng ->
+                    val mode = markerMode ?: return@LandscapeMapLayout
+                    val label = markerLabelFor(mode, customMarkerLabel)
+                    mapVm.addTacticalMarker(mode, latLng, label)
+                    markerMode = null
+                }
             )
         } else {
             PortraitMapLayout(
@@ -139,7 +147,13 @@ fun MapScreen(
                 hasLocationPermission = locationPermissionState.hasPermission,
                 onToggleGrid = mapVm::toggleGrid,
                 onDismissAlert = mapVm::dismissOutOfBoundsAlert,
-                onMapLoaded = { mapLoaded = true }
+                onMapLoaded = { mapLoaded = true },
+                onMapClick = { latLng ->
+                    val mode = markerMode ?: return@PortraitMapLayout
+                    val label = markerLabelFor(mode, customMarkerLabel)
+                    mapVm.addTacticalMarker(mode, latLng, label)
+                    markerMode = null
+                }
             )
         }
 
@@ -169,6 +183,21 @@ fun MapScreen(
                 onRequestPermission = locationPermissionState.requestPermission
             )
         }
+
+        if (markerMode != null) {
+            MarkerPlacementHint(
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 64.dp),
+                label = markerLabelFor(markerMode!!, customMarkerLabel)
+            )
+        }
+
+        MarkerToolsPanel(
+            modifier = Modifier.align(Alignment.BottomStart).padding(12.dp),
+            activeMode = markerMode,
+            customLabel = customMarkerLabel,
+            onCustomLabelChange = { customMarkerLabel = it },
+            onSelectMode = { markerMode = it }
+        )
 
         if (showMapError) {
             MapLoadErrorCard(
@@ -298,7 +327,8 @@ private fun PortraitMapLayout(
     hasLocationPermission: Boolean,
     onToggleGrid: () -> Unit,
     onDismissAlert: () -> Unit,
-    onMapLoaded: () -> Unit
+    onMapLoaded: () -> Unit,
+    onMapClick: (LatLng) -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         TacticalGoogleMap(
@@ -308,7 +338,8 @@ private fun PortraitMapLayout(
             mapStyle = mapStyle,
             field = field,
             hasLocationPermission = hasLocationPermission,
-            onMapLoaded = onMapLoaded
+            onMapLoaded = onMapLoaded,
+            onMapClick = onMapClick
         )
         if (state.gridVisible) Canvas(Modifier.fillMaxSize()) { drawTacticalGrid(this) }
         MapHud(
@@ -336,7 +367,8 @@ private fun LandscapeMapLayout(
     hasLocationPermission: Boolean,
     onToggleGrid: () -> Unit,
     onDismissAlert: () -> Unit,
-    onMapLoaded: () -> Unit
+    onMapLoaded: () -> Unit,
+    onMapClick: (LatLng) -> Unit
 ) {
     Row(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
@@ -347,7 +379,8 @@ private fun LandscapeMapLayout(
                 mapStyle = mapStyle,
                 field = field,
                 hasLocationPermission = hasLocationPermission,
-                onMapLoaded = onMapLoaded
+                onMapLoaded = onMapLoaded,
+                onMapClick = onMapClick
             )
             if (state.gridVisible) Canvas(Modifier.fillMaxSize()) { drawTacticalGrid(this) }
             androidx.compose.animation.AnimatedVisibility(
@@ -393,7 +426,8 @@ private fun TacticalGoogleMap(
     mapStyle: MapStyleOptions?,
     field: AirsoftField,
     hasLocationPermission: Boolean,
-    onMapLoaded: () -> Unit
+    onMapLoaded: () -> Unit,
+    onMapClick: (LatLng) -> Unit
 ) {
     GoogleMap(
         modifier = modifier,
@@ -407,15 +441,18 @@ private fun TacticalGoogleMap(
             myLocationButtonEnabled = hasLocationPermission,
             mapToolbarEnabled = false
         ),
-        onMapLoaded = onMapLoaded
+        onMapLoaded = onMapLoaded,
+        onMapClick = onMapClick
     ) {
-        Polygon(
-            points = field.perimeter,
-            fillColor = FieldFill,
-            strokeColor = FieldStroke,
-            strokeWidth = 4f,
-            geodesic = false
-        )
+        field.perimeter.forEach { polygon ->
+            Polygon(
+                points = polygon,
+                fillColor = FieldFill,
+                strokeColor = FieldStroke,
+                strokeWidth = 4f,
+                geodesic = false
+            )
+        }
 
         state.players.forEach { player ->
             Marker(
@@ -463,6 +500,93 @@ private fun MapLoadErrorCard(
             )
             TextButton(onClick = onRetry) { Text("Reintentar", color = Color.White) }
         }
+    }
+}
+
+@Composable
+private fun MarkerToolsPanel(
+    modifier: Modifier,
+    activeMode: MarkerType?,
+    customLabel: String,
+    onCustomLabelChange: (String) -> Unit,
+    onSelectMode: (MarkerType?) -> Unit
+) {
+    Card(
+        modifier = modifier.widthIn(max = 240.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xCC101810)),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Marcadores", color = Color.White, style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MarkerModeButton("Objetivo", activeMode == MarkerType.OBJECTIVE) {
+                    onSelectMode(MarkerType.OBJECTIVE)
+                }
+                MarkerModeButton("Seguro", activeMode == MarkerType.SAFE_ZONE) {
+                    onSelectMode(MarkerType.SAFE_ZONE)
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MarkerModeButton("Peligro", activeMode == MarkerType.DANGER) {
+                    onSelectMode(MarkerType.DANGER)
+                }
+                MarkerModeButton("Custom", activeMode == MarkerType.CUSTOM) {
+                    onSelectMode(MarkerType.CUSTOM)
+                }
+            }
+            if (activeMode == MarkerType.CUSTOM) {
+                OutlinedTextField(
+                    value = customLabel,
+                    onValueChange = onCustomLabelChange,
+                    singleLine = true,
+                    label = { Text("Etiqueta") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            Text(
+                text = "Toca el mapa para colocar",
+                color = Color.White,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+}
+
+@Composable
+private fun MarkerModeButton(label: String, selected: Boolean, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = if (selected) Color(0xFF1B3D1B) else Color.Transparent,
+            contentColor = Color.White
+        )
+    ) {
+        Text(label)
+    }
+}
+
+@Composable
+private fun MarkerPlacementHint(modifier: Modifier, label: String) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = Color(0xCC101810)),
+        shape = RoundedCornerShape(10.dp)
+    ) {
+        Text(
+            text = "Colocando: $label",
+            color = Color.White,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+        )
+    }
+}
+
+private fun markerLabelFor(type: MarkerType, customLabel: String): String {
+    return when (type) {
+        MarkerType.OBJECTIVE -> "Objetivo"
+        MarkerType.SAFE_ZONE -> "Zona segura"
+        MarkerType.DANGER -> "Peligro"
+        MarkerType.CUSTOM -> if (customLabel.isBlank()) "Marcador" else customLabel
     }
 }
 

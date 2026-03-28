@@ -72,6 +72,16 @@ class MapViewModel : ViewModel() {
         }
     }
 
+    fun addTacticalMarker(type: MarkerType, position: LatLng, label: String) {
+        val marker = TacticalMarker(
+            id = "${type.name.lowercase()}_${System.currentTimeMillis()}",
+            label = label,
+            position = position,
+            type = type
+        )
+        _uiState.update { it.copy(tacticalMarkers = it.tacticalMarkers + marker) }
+    }
+
     fun dismissOutOfBoundsAlert() {
         _uiState.update { it.copy(showOutOfBoundsAlert = false) }
     }
