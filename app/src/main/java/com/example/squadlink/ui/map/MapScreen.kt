@@ -5,6 +5,11 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Looper
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -25,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -56,10 +62,15 @@ fun MapScreen(
     val selectionState by fieldVm.uiState.collectAsState()
     val selectedField = selectionState.selectedField
     val field = mapState.field
+    val ctx = LocalContext.current
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    val mapStyle: MapStyleOptions? = null
+    val mapStyle = remember {
+        runCatching {
+            MapStyleOptions.loadRawResourceStyle(ctx, com.example.squadlink.R.raw.map_style_tactical)
+        }.getOrNull()
+    }
 
     val locationPermissionState = rememberLocationPermissionState()
     var requestedLocationPermission by rememberSaveable { mutableStateOf(false) }
@@ -429,6 +440,7 @@ private fun TacticalGoogleMap(
     onMapLoaded: () -> Unit,
     onMapClick: (LatLng) -> Unit
 ) {
+    val tacticalIcons = rememberTacticalMarkerIcons()
     GoogleMap(
         modifier = modifier,
         cameraPositionState = cameraState,
@@ -466,16 +478,11 @@ private fun TacticalGoogleMap(
         }
 
         state.tacticalMarkers.forEach { marker ->
-            val color = when (marker.type) {
-                MarkerType.OBJECTIVE -> ObjectiveYellow
-                MarkerType.SAFE_ZONE -> SafeZoneBlue
-                MarkerType.DANGER -> OutOfBoundsRed
-                MarkerType.CUSTOM -> Color.White
-            }
+            val icon = tacticalIcons[marker.type]
             Marker(
                 state = MarkerState(position = marker.position),
                 title = marker.label,
-                icon = bitmapDescriptorFromColor(color)
+                icon = icon
             )
         }
     }
@@ -719,6 +726,71 @@ private fun bitmapDescriptorFromColor(color: Color): BitmapDescriptor {
         hsv
     )
     return BitmapDescriptorFactory.defaultMarker(hsv[0])
+}
+
+private enum class TacticalShape { DIAMOND, SQUARE, TRIANGLE, CIRCLE }
+
+@Composable
+private fun rememberTacticalMarkerIcons(): Map<MarkerType, BitmapDescriptor> {
+    return remember {
+        mapOf(
+            MarkerType.OBJECTIVE to tacticalMarkerIcon(TacticalShape.DIAMOND, ObjectiveYellow, Color(0xFF101810)),
+            MarkerType.SAFE_ZONE to tacticalMarkerIcon(TacticalShape.SQUARE, SafeZoneBlue, Color(0xFF101810)),
+            MarkerType.DANGER to tacticalMarkerIcon(TacticalShape.TRIANGLE, OutOfBoundsRed, Color(0xFF101810)),
+            MarkerType.CUSTOM to tacticalMarkerIcon(TacticalShape.CIRCLE, Color.White, Color(0xFF101810))
+        )
+    }
+}
+
+private fun tacticalMarkerIcon(
+    shape: TacticalShape,
+    stroke: Color,
+    fill: Color
+): BitmapDescriptor {
+    val size = 72
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val padding = 12f
+    val rect = RectF(padding, padding, size - padding, size - padding)
+
+    val path = Path().apply {
+        when (shape) {
+            TacticalShape.DIAMOND -> {
+                moveTo(size / 2f, rect.top)
+                lineTo(rect.right, size / 2f)
+                lineTo(size / 2f, rect.bottom)
+                lineTo(rect.left, size / 2f)
+                close()
+            }
+            TacticalShape.SQUARE -> {
+                addRect(rect, Path.Direction.CW)
+            }
+            TacticalShape.TRIANGLE -> {
+                moveTo(size / 2f, rect.top)
+                lineTo(rect.right, rect.bottom)
+                lineTo(rect.left, rect.bottom)
+                close()
+            }
+            TacticalShape.CIRCLE -> {
+                addOval(rect, Path.Direction.CW)
+            }
+        }
+    }
+
+    val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = fill.toArgb()
+    }
+    canvas.drawPath(path, fillPaint)
+
+    val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 6f
+        color = stroke.toArgb()
+    }
+    canvas.drawPath(path, strokePaint)
+
+    return BitmapDescriptorFactory.fromBitmap(bitmap)
 }
 
 private data class LocationPermissionState(
