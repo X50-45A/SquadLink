@@ -12,6 +12,7 @@ import com.example.squadlink.ui.screens.HomeScreen
 import com.example.squadlink.ui.screens.JoinGameScreen
 import com.example.squadlink.ui.map.MapScreen
 import com.example.squadlink.ui.map.FieldSelectionViewModel
+import com.example.squadlink.ui.session.GameSessionViewModel
 import com.example.squadlink.ui.screens.ProfileScreen
 import com.example.squadlink.ui.screens.SquadScreen
 import com.example.squadlink.ui.settings.SettingsScreen
@@ -38,8 +39,12 @@ fun NavGraph(
             val fieldVm: FieldSelectionViewModel = viewModel(
                 factory = FieldSelectionViewModel.Factory(UserPreferencesRepository(context))
             )
+            val sessionVm: GameSessionViewModel = viewModel(
+                factory = GameSessionViewModel.Factory(UserPreferencesRepository(context))
+            )
             JoinGameScreen(
                 fieldVm = fieldVm,
+                sessionVm = sessionVm,
                 onGameJoined = {
                     navController.navigate(Screen.Map.route) {
                         popUpTo(Screen.Home.route)
@@ -54,7 +59,10 @@ fun NavGraph(
             val fieldVm: FieldSelectionViewModel = viewModel(
                 factory = FieldSelectionViewModel.Factory(UserPreferencesRepository(context))
             )
-            MapScreen(fieldVm = fieldVm)
+            val sessionVm: GameSessionViewModel = viewModel(
+                factory = GameSessionViewModel.Factory(UserPreferencesRepository(context))
+            )
+            MapScreen(fieldVm = fieldVm, sessionVm = sessionVm)
         }
 
         composable(Screen.Squad.route) {
@@ -77,7 +85,16 @@ fun NavGraph(
         }
 
         composable(Screen.GameMaster.route) {
+            val context = LocalContext.current
+            val fieldVm: FieldSelectionViewModel = viewModel(
+                factory = FieldSelectionViewModel.Factory(UserPreferencesRepository(context))
+            )
+            val sessionVm: GameSessionViewModel = viewModel(
+                factory = GameSessionViewModel.Factory(UserPreferencesRepository(context))
+            )
             GameMasterScreen(
+                fieldVm = fieldVm,
+                sessionVm = sessionVm,
                 onBack = { navController.popBackStack() }
             )
         }

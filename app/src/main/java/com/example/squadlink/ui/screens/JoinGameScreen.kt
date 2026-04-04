@@ -12,11 +12,13 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.squadlink.ui.map.FieldSelectionViewModel
+import com.example.squadlink.ui.session.GameSessionViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JoinGameScreen(
     fieldVm: FieldSelectionViewModel,
+    sessionVm: GameSessionViewModel,
     onGameJoined: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -96,12 +98,15 @@ fun JoinGameScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            Button(
-                onClick = onGameJoined,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                enabled = gameCode.isNotBlank() && playerName.isNotBlank() && selectedField != null
+    Button(
+        onClick = {
+            sessionVm.joinGame(gameCode)
+            onGameJoined()
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp),
+        enabled = gameCode.isNotBlank() && playerName.isNotBlank() && selectedField != null
             ) {
                 Text("Entrar")
             }

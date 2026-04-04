@@ -46,6 +46,7 @@ import com.google.android.gms.location.*
 import com.google.android.gms.maps.model.*
 import com.google.maps.android.compose.*
 import kotlinx.coroutines.delay
+import com.example.squadlink.ui.session.GameSessionViewModel
 import androidx.core.graphics.createBitmap
 
 private val GridColor = Color(0x2200FF41)
@@ -58,10 +59,12 @@ private val SafeZoneBlue = Color(0xFF29B6F6)
 @Composable
 fun MapScreen(
     fieldVm: FieldSelectionViewModel,
+    sessionVm: GameSessionViewModel,
     mapVm: MapViewModel = viewModel()
 ) {
     val mapState by mapVm.uiState.collectAsState()
     val selectionState by fieldVm.uiState.collectAsState()
+    val sessionState by sessionVm.uiState.collectAsState()
     val selectedField = selectionState.selectedField
     val field = mapState.field
     val ctx = LocalContext.current
@@ -81,6 +84,7 @@ fun MapScreen(
     var showMapError by remember { mutableStateOf(false) }
     var markerMode by remember { mutableStateOf<MarkerType?>(null) }
     var customMarkerLabel by remember { mutableStateOf("") }
+    val mapLocked = sessionState.activeGameCode.isNotBlank()
 
     LaunchedEffect(locationPermissionState.hasPermission, requestedLocationPermission) {
         if (!locationPermissionState.hasPermission && !requestedLocationPermission) {
@@ -146,6 +150,7 @@ fun MapScreen(
                 onDismissAlert = mapVm::dismissOutOfBoundsAlert,
                 onMapLoaded = { mapLoaded = true },
                 onMapClick = { latLng ->
+                    if (!sessionState.isGameMaster) return@LandscapeMapLayout
                     val mode = markerMode ?: return@LandscapeMapLayout
                     val label = markerLabelFor(mode, customMarkerLabel)
                     mapVm.addTacticalMarker(mode, latLng, label)
@@ -164,6 +169,7 @@ fun MapScreen(
                 onDismissAlert = mapVm::dismissOutOfBoundsAlert,
                 onMapLoaded = { mapLoaded = true },
                 onMapClick = { latLng ->
+                    if (!sessionState.isGameMaster) return@PortraitMapLayout
                     val mode = markerMode ?: return@PortraitMapLayout
                     val label = markerLabelFor(mode, customMarkerLabel)
                     mapVm.addTacticalMarker(mode, latLng, label)
@@ -174,10 +180,11 @@ fun MapScreen(
 
         ChangeFieldButton(
             modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
-            onClick = { showFieldPicker = true }
+            onClick = { showFieldPicker = true },
+            enabled = !mapLocked
         )
 
-        if (showFieldPicker) {
+        if (showFieldPicker && !mapLocked) {
             FieldSelectionPanel(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -206,13 +213,15 @@ fun MapScreen(
             )
         }
 
-        MarkerToolsPanel(
-            modifier = Modifier.align(Alignment.BottomStart).padding(12.dp),
-            activeMode = markerMode,
-            customLabel = customMarkerLabel,
-            onCustomLabelChange = { customMarkerLabel = it },
-            onSelectMode = { markerMode = it }
-        )
+        if (sessionState.isGameMaster) {
+            MarkerToolsPanel(
+                modifier = Modifier.align(Alignment.BottomStart).padding(12.dp),
+                activeMode = markerMode,
+                customLabel = customMarkerLabel,
+                onCustomLabelChange = { customMarkerLabel = it },
+                onSelectMode = { markerMode = it }
+            )
+        }
 
         if (showMapError) {
             MapLoadErrorCard(
@@ -327,8 +336,8 @@ private fun FieldListItem(field: AirsoftField, onSelect: (AirsoftField) -> Unit)
 }
 
 @Composable
-private fun ChangeFieldButton(modifier: Modifier, onClick: () -> Unit) {
-    OutlinedButton(onClick = onClick, modifier = modifier) {
+private fun ChangeFieldButton(modifier: Modifier, onClick: () -> Unit, enabled: Boolean) {
+    OutlinedButton(onClick = onClick, modifier = modifier, enabled = enabled) {
         Text("Cambiar campo")
     }
 }
@@ -449,7 +458,8 @@ private fun TacticalGoogleMap(
     onMapLoaded: () -> Unit,
     onMapClick: (LatLng) -> Unit
 ) {
-    val tacticalIcons = if (mapLoaded) rememberTacticalMarkerIcons() else emptyMap()
+    val tacticalIcons: Map<String, BitmapDescriptor> =
+        if (mapLoaded) rememberTacticalMarkerIcons() else emptyMap()
     GoogleMap(
         modifier = modifier,
         cameraPositionState = cameraState,
@@ -492,7 +502,11 @@ private fun TacticalGoogleMap(
         }
 
         state.tacticalMarkers.forEach { marker ->
-            val icon = if (mapLoaded) tacticalIcons[marker.type] else null
+            val icon = if (mapLoaded) {
+                tacticalIconForMarker(tacticalIcons, marker)
+            } else {
+                null
+            }
             Marker(
                 state = MarkerState(position = marker.position),
                 title = marker.label,
@@ -540,7 +554,7 @@ private fun MarkerToolsPanel(
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Marcadores", color = Color.White, style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarkerModeButton("Objetivo", activeMode == MarkerType.OBJECTIVE) {
+                MarkerModeButton("Bandera", activeMode == MarkerType.OBJECTIVE) {
                     onSelectMode(MarkerType.OBJECTIVE)
                 }
                 MarkerModeButton("Seguro", activeMode == MarkerType.SAFE_ZONE) {
@@ -551,7 +565,7 @@ private fun MarkerToolsPanel(
                 MarkerModeButton("Peligro", activeMode == MarkerType.DANGER) {
                     onSelectMode(MarkerType.DANGER)
                 }
-                MarkerModeButton("Custom", activeMode == MarkerType.CUSTOM) {
+                MarkerModeButton("Personal", activeMode == MarkerType.CUSTOM) {
                     onSelectMode(MarkerType.CUSTOM)
                 }
             }
@@ -604,7 +618,7 @@ private fun MarkerPlacementHint(modifier: Modifier, label: String) {
 
 private fun markerLabelFor(type: MarkerType, customLabel: String): String {
     return when (type) {
-        MarkerType.OBJECTIVE -> "Objetivo"
+        MarkerType.OBJECTIVE -> "Bandera"
         MarkerType.SAFE_ZONE -> "Zona segura"
         MarkerType.DANGER -> "Peligro"
         MarkerType.CUSTOM -> if (customLabel.isBlank()) "Marcador" else customLabel
@@ -757,21 +771,48 @@ private fun bitmapDescriptorFromColor(color: Color): BitmapDescriptor {
 private enum class TacticalShape { DIAMOND, SQUARE, TRIANGLE, CIRCLE }
 
 @Composable
-private fun rememberTacticalMarkerIcons(): Map<MarkerType, BitmapDescriptor> {
-    return remember {
-        mapOf(
-            MarkerType.OBJECTIVE to tacticalMarkerIcon(TacticalShape.DIAMOND, ObjectiveYellow, Color(0xFF101810)),
-            MarkerType.SAFE_ZONE to tacticalMarkerIcon(TacticalShape.SQUARE, SafeZoneBlue, Color(0xFF101810)),
-            MarkerType.DANGER to tacticalMarkerIcon(TacticalShape.TRIANGLE, OutOfBoundsRed, Color(0xFF101810)),
-            MarkerType.CUSTOM to tacticalMarkerIcon(TacticalShape.CIRCLE, Color.White, Color(0xFF101810))
-        )
+private fun rememberTacticalMarkerIcons(): Map<String, BitmapDescriptor> {
+    return remember { mutableMapOf() }
+}
+
+private fun tacticalIconForMarker(
+    cache: Map<String, BitmapDescriptor>,
+    marker: TacticalMarker
+): BitmapDescriptor? {
+    val text = markerShortLabel(marker)
+    val key = "${marker.type.name}::$text"
+    val existing = cache[key]
+    if (existing != null) return existing
+    val icon = when (marker.type) {
+        MarkerType.OBJECTIVE ->
+            tacticalMarkerIcon(TacticalShape.DIAMOND, ObjectiveYellow, Color(0xFF101810), text)
+        MarkerType.SAFE_ZONE ->
+            tacticalMarkerIcon(TacticalShape.SQUARE, SafeZoneBlue, Color(0xFF101810), text)
+        MarkerType.DANGER ->
+            tacticalMarkerIcon(TacticalShape.TRIANGLE, OutOfBoundsRed, Color(0xFF101810), text)
+        MarkerType.CUSTOM ->
+            tacticalMarkerIcon(TacticalShape.CIRCLE, Color.White, Color(0xFF101810), text)
+    }
+    if (cache is MutableMap) {
+        cache[key] = icon
+    }
+    return icon
+}
+
+private fun markerShortLabel(marker: TacticalMarker): String {
+    return when (marker.type) {
+        MarkerType.OBJECTIVE -> marker.label.removePrefix("Bandera ").trim().take(2).uppercase()
+        MarkerType.SAFE_ZONE -> "SZ"
+        MarkerType.DANGER -> "DNG"
+        MarkerType.CUSTOM -> marker.label.take(3).uppercase()
     }
 }
 
 private fun tacticalMarkerIcon(
     shape: TacticalShape,
     stroke: Color,
-    fill: Color
+    fill: Color,
+    text: String
 ): BitmapDescriptor {
     val size = 72
     val bitmap = createBitmap(size, size)
@@ -815,6 +856,14 @@ private fun tacticalMarkerIcon(
         color = stroke.toArgb()
     }
     canvas.drawPath(path, strokePaint)
+
+    val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = stroke.toArgb()
+        textAlign = Paint.Align.CENTER
+        textSize = 20f
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+    }
+    canvas.drawText(text, size / 2f, size / 2f + 7f, textPaint)
 
     return BitmapDescriptorFactory.fromBitmap(bitmap)
 }

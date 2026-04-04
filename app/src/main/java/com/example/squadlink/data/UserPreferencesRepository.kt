@@ -22,6 +22,8 @@ class UserPreferencesRepository(private val context: Context) {
         val KEY_SHOW_GRID      = booleanPreferencesKey("show_grid")
         val KEY_KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val KEY_FIELD_ID       = stringPreferencesKey("selected_field_id")
+        val KEY_ACTIVE_GAME    = stringPreferencesKey("active_game_code")
+        val KEY_IS_GM          = booleanPreferencesKey("is_game_master")
     }
 
     val darkTheme: Flow<Boolean> = context.dataStore.data
@@ -38,6 +40,12 @@ class UserPreferencesRepository(private val context: Context) {
 
     val selectedFieldId: Flow<String> = context.dataStore.data
         .map { prefs -> prefs[KEY_FIELD_ID] ?: "" }
+
+    val activeGameCode: Flow<String> = context.dataStore.data
+        .map { prefs -> prefs[KEY_ACTIVE_GAME] ?: "" }
+
+    val isGameMaster: Flow<Boolean> = context.dataStore.data
+        .map { prefs -> prefs[KEY_IS_GM] ?: false }
 
     suspend fun setDarkTheme(enabled: Boolean) {
         context.dataStore.edit { it[KEY_DARK_THEME] = enabled }
@@ -61,5 +69,17 @@ class UserPreferencesRepository(private val context: Context) {
 
     suspend fun clearSelectedField() {
         context.dataStore.edit { it.remove(KEY_FIELD_ID) }
+    }
+
+    suspend fun setActiveGameCode(code: String) {
+        context.dataStore.edit { it[KEY_ACTIVE_GAME] = code }
+    }
+
+    suspend fun clearActiveGameCode() {
+        context.dataStore.edit { it.remove(KEY_ACTIVE_GAME) }
+    }
+
+    suspend fun setIsGameMaster(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_IS_GM] = enabled }
     }
 }

@@ -41,6 +41,9 @@ class MapViewModel : ViewModel() {
 
     private val _uiState = MutableStateFlow(MapUiState())
     val uiState: StateFlow<MapUiState> = _uiState.asStateFlow()
+    private var objectiveIndex = 0
+    private var safeIndex = 0
+    private var dangerIndex = 0
 
     /** Called by Firebase listener when squad positions update */
     fun onPlayersUpdated(players: List<PlayerMarker>) {
@@ -54,7 +57,17 @@ class MapViewModel : ViewModel() {
 
     /** Called when Firebase loads the field data for this game session */
     fun onFieldLoaded(field: AirsoftField) {
-        _uiState.update { it.copy(field = field) }
+        objectiveIndex = 0
+        safeIndex = 0
+        dangerIndex = 0
+        _uiState.update {
+            it.copy(
+                field = field,
+                tacticalMarkers = emptyList(),
+                showOutOfBoundsAlert = false,
+                currentPlayerOutOfBounds = false
+            )
+        }
     }
 
     /** Called every time the GPS updates the current player's location */
@@ -73,9 +86,25 @@ class MapViewModel : ViewModel() {
     }
 
     fun addTacticalMarker(type: MarkerType, position: LatLng, label: String) {
+        val resolvedLabel = when (type) {
+            MarkerType.OBJECTIVE -> {
+                val letter = ('A'.code + objectiveIndex).toChar()
+                objectiveIndex += 1
+                "Bandera $letter"
+            }
+            MarkerType.SAFE_ZONE -> {
+                safeIndex += 1
+                "Zona segura $safeIndex"
+            }
+            MarkerType.DANGER -> {
+                dangerIndex += 1
+                "Peligro $dangerIndex"
+            }
+            MarkerType.CUSTOM -> if (label.isBlank()) "Marcador" else label
+        }
         val marker = TacticalMarker(
             id = "${type.name.lowercase()}_${System.currentTimeMillis()}",
-            label = label,
+            label = resolvedLabel,
             position = position,
             type = type
         )
