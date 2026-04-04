@@ -111,7 +111,10 @@ fun MapScreen(
     LocationUpdatesEffect(
         enabled = locationPermissionState.hasPermission,
         onLocation = { location ->
-            mapVm.onPlayerLocationUpdate(LatLng(location.latitude, location.longitude))
+            mapVm.onPlayerLocationUpdate(
+                LatLng(location.latitude, location.longitude),
+                sessionState.isGameMaster
+            )
         }
     )
 

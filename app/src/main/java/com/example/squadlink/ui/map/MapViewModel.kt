@@ -79,9 +79,18 @@ class MapViewModel : ViewModel() {
     }
 
     /** Called every time the GPS updates the current player's location */
-    fun onPlayerLocationUpdate(position: LatLng) {
+    fun onPlayerLocationUpdate(position: LatLng, isGameMaster: Boolean) {
         viewModelScope.launch {
             val field = _uiState.value.field ?: return@launch
+            if (isGameMaster) {
+                _uiState.update {
+                    it.copy(
+                        currentPlayerOutOfBounds = false,
+                        showOutOfBoundsAlert = false
+                    )
+                }
+                return@launch
+            }
             val outOfBounds = !isInsideGeofence(position, field.perimeter)
             _uiState.update {
                 it.copy(
