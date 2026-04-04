@@ -15,7 +15,8 @@ import com.example.squadlink.ui.profile.ProfileViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
-    vm: ProfileViewModel
+    vm: ProfileViewModel,
+    onLogout: () -> Unit
 ) {
     val state by vm.uiState.collectAsState()
     val accounts = listOf(
@@ -67,6 +68,17 @@ fun ProfileScreen(
                         )
                     }
                 }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = {
+                    vm.logout()
+                    onLogout()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Cerrar sesion")
             }
         }
     }

@@ -34,7 +34,7 @@ fun HomeScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "Coordinación táctica para Airsoft",
+            text = "Coordinacion tactica para Airsoft",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

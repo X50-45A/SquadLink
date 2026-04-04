@@ -10,6 +10,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RectF
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -54,6 +55,12 @@ private val GridColor = Color(0x2200FF41)
 private val FieldFill = Color(0x1A4CAF50)
 private val FieldStroke = Color(0xFF76FF03)
 private val OutOfBoundsRed = Color(0xCCF44336)
+private val NatoBlue = Color(0xFF2979FF)
+private val NatoRed = Color(0xFFD32F2F)
+private val NatoDarkRed = Color(0xFFB71C1C)
+private val NatoYellow = Color(0xFFFFC400)
+private val NatoGreen = Color(0xFF66BB6A)
+private val NatoDark = Color(0xFF101810)
 
 @Composable
 fun MapScreen(
@@ -460,7 +467,7 @@ private fun TacticalGoogleMap(
         modifier = modifier,
         cameraPositionState = cameraState,
         properties = MapProperties(
-            mapType = MapType.TERRAIN,
+            mapType = MapType.SATELLITE,
             mapStyleOptions = mapStyle,
             isMyLocationEnabled = hasLocationPermission
         ),
@@ -628,9 +635,9 @@ private fun MarkerToolsPanel(
     activeMode: com.example.squadlink.ui.map.MarkerType?,
     customLabel: String,
     onCustomLabelChange: (String) -> Unit,
-    onSelectMode: (com.example.squadlink.ui.map.MarkerType) -> Unit
+    onSelectMode: (com.example.squadlink.ui.map.MarkerType?) -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(true) }
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (expanded) {
@@ -643,13 +650,13 @@ private fun MarkerToolsPanel(
                     tools.forEach { type ->
                         val isSelected = activeMode == type
                         TextButton(
-                            onClick = { onSelectMode(type) },
+                            onClick = { onSelectMode(if (isSelected) null else type) },
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.textButtonColors(
                                 contentColor = if (isSelected) Color(0xFF76FF03) else Color.White
                             )
                         ) {
-                            Text(type.name, style = MaterialTheme.typography.bodySmall)
+                            Text(markerToolLabel(type), style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     if (activeMode == com.example.squadlink.ui.map.MarkerType.CUSTOM) {
@@ -690,62 +697,137 @@ private fun drawTacticalGrid(scope: DrawScope) {
     }
 }
 
+private enum class NatoShape { RECTANGLE, DIAMOND, TRIANGLE, CIRCLE }
+
 @Composable
 private fun rememberTacticalMarkerIcons(): Map<String, BitmapDescriptor> {
-    val ctx = LocalContext.current
-    return remember(ctx) {
+    return remember {
         mapOf(
-            "player" to createMarkerIcon(ctx, Color(0xFF00FF41), true),
-            "player_out" to createMarkerIcon(ctx, Color(0xFFF44336), true),
-            "objective" to createMarkerIcon(ctx, Color(0xFFFFD600), false),
-            "safe_zone" to createMarkerIcon(ctx, Color(0xFF29B6F6), false),
-            "enemy" to createMarkerIcon(ctx, Color(0xFFD32F2F), false),
-            "custom" to createMarkerIcon(ctx, Color.White, false)
+            "player" to createPlayerMarkerIcon(Color(0xFF00FF41)),
+            "player_out" to createPlayerMarkerIcon(Color(0xFFF44336)),
+            "objective" to createNatoMarkerIcon(NatoShape.RECTANGLE, NatoBlue, NatoDark, "OBJ"),
+            "safe_zone" to createNatoMarkerIcon(NatoShape.RECTANGLE, NatoGreen, NatoDark, "SZ"),
+            "danger" to createNatoMarkerIcon(NatoShape.TRIANGLE, NatoRed, NatoDark, "DNG"),
+            "enemy" to createNatoMarkerIcon(NatoShape.DIAMOND, NatoRed, NatoDark, "EN"),
+            "enemy_heavy" to createNatoMarkerIcon(NatoShape.DIAMOND, NatoDarkRed, NatoDark, "HV"),
+            "contact" to createNatoMarkerIcon(NatoShape.TRIANGLE, NatoYellow, NatoDark, "CT"),
+            "custom" to createNatoMarkerIcon(NatoShape.CIRCLE, Color.White, NatoDark, "MK")
         )
     }
 }
 
-private fun createMarkerIcon(context: Context, color: Color, isPlayer: Boolean): BitmapDescriptor {
+private fun createPlayerMarkerIcon(color: Color): BitmapDescriptor {
     val size = 64
     val bitmap = createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val paint = Paint().apply {
         this.color = color.toArgb()
         isAntiAlias = true
+        style = Paint.Style.FILL
     }
 
-    if (isPlayer) {
-        val path = Path().apply {
-            moveTo(size / 2f, 0f)
-            lineTo(size.toFloat(), size.toFloat())
-            lineTo(size / 2f, size * 0.75f)
-            lineTo(0f, size.toFloat())
-            close()
-        }
-        canvas.drawPath(path, paint)
-    } else {
-        canvas.drawCircle(size / 2f, size / 2f, size / 3f, paint)
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 4f
-        paint.color = android.graphics.Color.BLACK
-        canvas.drawCircle(size / 2f, size / 2f, size / 3f, paint)
+    val path = Path().apply {
+        moveTo(size / 2f, 0f)
+        lineTo(size.toFloat(), size.toFloat())
+        lineTo(size / 2f, size * 0.75f)
+        lineTo(0f, size.toFloat())
+        close()
     }
+    canvas.drawPath(path, paint)
+
+    return BitmapDescriptorFactory.fromBitmap(bitmap)
+}
+
+private fun createNatoMarkerIcon(
+    shape: NatoShape,
+    stroke: Color,
+    fill: Color,
+    label: String
+): BitmapDescriptor {
+    val size = 72
+    val bitmap = createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val padding = 10f
+    val rect = RectF(padding, padding, size - padding, size - padding)
+
+    val path = Path().apply {
+        when (shape) {
+            NatoShape.RECTANGLE -> addRect(rect, Path.Direction.CW)
+            NatoShape.DIAMOND -> {
+                moveTo(size / 2f, rect.top)
+                lineTo(rect.right, size / 2f)
+                lineTo(size / 2f, rect.bottom)
+                lineTo(rect.left, size / 2f)
+                close()
+            }
+            NatoShape.TRIANGLE -> {
+                moveTo(size / 2f, rect.top)
+                lineTo(rect.right, rect.bottom)
+                lineTo(rect.left, rect.bottom)
+                close()
+            }
+            NatoShape.CIRCLE -> addOval(rect, Path.Direction.CW)
+        }
+    }
+
+    val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = fill.toArgb()
+    }
+    canvas.drawPath(path, fillPaint)
+
+    val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 6f
+        color = stroke.toArgb()
+    }
+    canvas.drawPath(path, strokePaint)
+
+    val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = stroke.toArgb()
+        textAlign = Paint.Align.CENTER
+        textSize = 18f
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+    }
+    canvas.drawText(label, size / 2f, size / 2f + 6f, textPaint)
 
     return BitmapDescriptorFactory.fromBitmap(bitmap)
 }
 
 private fun markerLabelFor(mode: com.example.squadlink.ui.map.MarkerType, custom: String): String = when (mode) {
+    com.example.squadlink.ui.map.MarkerType.OBJECTIVE -> "Bandera"
+    com.example.squadlink.ui.map.MarkerType.SAFE_ZONE -> "Zona segura"
+    com.example.squadlink.ui.map.MarkerType.DANGER -> "Peligro"
     com.example.squadlink.ui.map.MarkerType.ENEMY -> "Enemigo"
-    com.example.squadlink.ui.map.MarkerType.OBJECTIVE -> "Objetivo"
+    com.example.squadlink.ui.map.MarkerType.ENEMY_HEAVY -> "Alta presencia"
+    com.example.squadlink.ui.map.MarkerType.CONTACT -> "Contacto"
     com.example.squadlink.ui.map.MarkerType.CUSTOM -> custom.ifBlank { "Marcador" }
-    else -> mode.name
+}
+
+private fun markerToolLabel(mode: com.example.squadlink.ui.map.MarkerType): String = when (mode) {
+    com.example.squadlink.ui.map.MarkerType.OBJECTIVE -> "Objetivo"
+    com.example.squadlink.ui.map.MarkerType.SAFE_ZONE -> "Zona segura"
+    com.example.squadlink.ui.map.MarkerType.DANGER -> "Peligro"
+    com.example.squadlink.ui.map.MarkerType.ENEMY -> "Enemigo"
+    com.example.squadlink.ui.map.MarkerType.ENEMY_HEAVY -> "Alta presencia"
+    com.example.squadlink.ui.map.MarkerType.CONTACT -> "Contacto"
+    com.example.squadlink.ui.map.MarkerType.CUSTOM -> "Personal"
 }
 
 private fun markerToolsForRole(isGm: Boolean): List<com.example.squadlink.ui.map.MarkerType> {
     return if (isGm) {
-        listOf(com.example.squadlink.ui.map.MarkerType.ENEMY, com.example.squadlink.ui.map.MarkerType.OBJECTIVE, com.example.squadlink.ui.map.MarkerType.CUSTOM)
+        listOf(
+            com.example.squadlink.ui.map.MarkerType.OBJECTIVE,
+            com.example.squadlink.ui.map.MarkerType.SAFE_ZONE,
+            com.example.squadlink.ui.map.MarkerType.DANGER,
+            com.example.squadlink.ui.map.MarkerType.CUSTOM
+        )
     } else {
-        listOf(com.example.squadlink.ui.map.MarkerType.ENEMY, com.example.squadlink.ui.map.MarkerType.CUSTOM)
+        listOf(
+            com.example.squadlink.ui.map.MarkerType.ENEMY,
+            com.example.squadlink.ui.map.MarkerType.ENEMY_HEAVY,
+            com.example.squadlink.ui.map.MarkerType.CONTACT
+        )
     }
 }
 
