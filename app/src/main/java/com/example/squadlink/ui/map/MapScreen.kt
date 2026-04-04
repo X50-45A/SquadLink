@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.os.Build
 import android.os.Looper
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -50,6 +51,8 @@ import kotlinx.coroutines.delay
 import com.example.squadlink.ui.session.GameSessionViewModel
 import androidx.core.graphics.createBitmap
 import com.example.squadlink.R
+import com.example.squadlink.geofence.GeofenceManager
+import com.example.squadlink.notifications.NotificationHelper
 
 private val GridColor = Color(0x2200FF41)
 private val FieldFill = Color(0x1A4CAF50)
@@ -84,6 +87,10 @@ fun MapScreen(
     }
 
     val locationPermissionState = rememberLocationPermissionState()
+    val backgroundLocationPermission = rememberBackgroundLocationPermissionState()
+    val notificationPermission = rememberNotificationPermissionState()
+    val geofenceManager = remember(ctx) { GeofenceManager(ctx) }
+    val notificationHelper = remember(ctx) { NotificationHelper(ctx) }
     var requestedLocationPermission by rememberSaveable { mutableStateOf(false) }
     var showFieldPicker by rememberSaveable { mutableStateOf(field == null) }
     var mapLoaded by remember { mutableStateOf(false) }
@@ -91,6 +98,7 @@ fun MapScreen(
     var customMarkerLabel by remember { mutableStateOf("") }
     val mapLocked = sessionState.activeGameCode.isNotBlank()
     val markerMode = mapState.markerMode
+    var markerCount by remember { mutableStateOf(0) }
 
     LaunchedEffect(locationPermissionState.hasPermission, requestedLocationPermission) {
         if (!locationPermissionState.hasPermission && !requestedLocationPermission) {
@@ -117,6 +125,34 @@ fun MapScreen(
             )
         }
     )
+
+    val shouldArmGeofence = sessionState.activeGameCode.isNotBlank() &&
+        !sessionState.isGameMaster &&
+        field != null &&
+        locationPermissionState.hasPermission &&
+        backgroundLocationPermission.hasPermission
+
+    LaunchedEffect(shouldArmGeofence, field?.id) {
+        if (shouldArmGeofence && field != null) {
+            geofenceManager.registerFieldGeofence(field)
+        } else {
+            geofenceManager.clearGeofences()
+        }
+    }
+
+    LaunchedEffect(mapState.tacticalMarkers.size, sessionState.activeGameCode) {
+        if (sessionState.activeGameCode.isNotBlank()) {
+            if (mapState.tacticalMarkers.size > markerCount) {
+                val last = mapState.tacticalMarkers.last()
+                notificationHelper.notifyTactical(
+                    id = 3000 + mapState.tacticalMarkers.size,
+                    title = "Nuevo marcador",
+                    message = last.label
+                )
+            }
+        }
+        markerCount = mapState.tacticalMarkers.size
+    }
 
     if (field == null) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -205,6 +241,20 @@ fun MapScreen(
                     showFieldPicker = false
                 },
                 onClose = { showFieldPicker = false }
+            )
+        }
+
+        if (sessionState.activeGameCode.isNotBlank() && !sessionState.isGameMaster && !backgroundLocationPermission.hasPermission) {
+            BackgroundLocationPermissionCard(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
+                onRequestPermission = backgroundLocationPermission.requestPermission
+            )
+        }
+
+        if (sessionState.activeGameCode.isNotBlank() && !notificationPermission.hasPermission) {
+            NotificationPermissionCard(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
+                onRequestPermission = notificationPermission.requestPermission
             )
         }
 
@@ -855,6 +905,56 @@ private fun LocationPermissionCard(modifier: Modifier, onRequestPermission: () -
 }
 
 @Composable
+private fun BackgroundLocationPermissionCard(
+    modifier: Modifier,
+    onRequestPermission: () -> Unit
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xEE101010))
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "Ubicacion en segundo plano",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White
+            )
+            Text(
+                "Permite alertas cuando el telefono esta bloqueado.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White
+            )
+            Button(onClick = onRequestPermission) { Text("Activar") }
+        }
+    }
+}
+
+@Composable
+private fun NotificationPermissionCard(
+    modifier: Modifier,
+    onRequestPermission: () -> Unit
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xEE101010))
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "Notificaciones",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White
+            )
+            Text(
+                "Permite alertas en la pantalla bloqueada.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White
+            )
+            Button(onClick = onRequestPermission) { Text("Permitir") }
+        }
+    }
+}
+
+@Composable
 fun rememberLocationPermissionState(): LocationPermissionState {
     val context = LocalContext.current
     var hasPermission by remember {
@@ -874,6 +974,70 @@ fun rememberLocationPermissionState(): LocationPermissionState {
     return remember(hasPermission) {
         LocationPermissionState(hasPermission) { launcher.launch(Manifest.permission.ACCESS_FINE_LOCATION) }
     }
+}
+
+private data class NotificationPermissionState(
+    val hasPermission: Boolean,
+    val requestPermission: () -> Unit
+)
+
+@Composable
+private fun rememberNotificationPermissionState(): NotificationPermissionState {
+    val context = LocalContext.current
+    val hasPermissionState = remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= 33) {
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) == PackageManager.PERMISSION_GRANTED
+            } else {
+                true
+            }
+        )
+    }
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasPermissionState.value = granted
+    }
+
+    return NotificationPermissionState(
+        hasPermission = hasPermissionState.value,
+        requestPermission = {
+            if (Build.VERSION.SDK_INT >= 33) {
+                launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    )
+}
+
+private data class BackgroundLocationPermissionState(
+    val hasPermission: Boolean,
+    val requestPermission: () -> Unit
+)
+
+@Composable
+private fun rememberBackgroundLocationPermissionState(): BackgroundLocationPermissionState {
+    val context = LocalContext.current
+    val hasPermissionState = remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_BACKGROUND_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasPermissionState.value = granted
+    }
+
+    return BackgroundLocationPermissionState(
+        hasPermission = hasPermissionState.value,
+        requestPermission = { launcher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION) }
+    )
 }
 
 class LocationPermissionState(val hasPermission: Boolean, val requestPermission: () -> Unit)
