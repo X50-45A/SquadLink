@@ -26,7 +26,7 @@ data class TacticalMarker(
     val type: MarkerType
 )
 
-enum class MarkerType { OBJECTIVE, SAFE_ZONE, DANGER, CUSTOM }
+enum class MarkerType { OBJECTIVE, SAFE_ZONE, DANGER, ENEMY, ENEMY_HEAVY, CONTACT, CUSTOM }
 
 data class MapUiState(
     val field: AirsoftField? = null,
@@ -44,6 +44,9 @@ class MapViewModel : ViewModel() {
     private var objectiveIndex = 0
     private var safeIndex = 0
     private var dangerIndex = 0
+    private var enemyIndex = 0
+    private var enemyHeavyIndex = 0
+    private var contactIndex = 0
 
     /** Called by Firebase listener when squad positions update */
     fun onPlayersUpdated(players: List<PlayerMarker>) {
@@ -60,6 +63,9 @@ class MapViewModel : ViewModel() {
         objectiveIndex = 0
         safeIndex = 0
         dangerIndex = 0
+        enemyIndex = 0
+        enemyHeavyIndex = 0
+        contactIndex = 0
         _uiState.update {
             it.copy(
                 field = field,
@@ -99,6 +105,18 @@ class MapViewModel : ViewModel() {
             MarkerType.DANGER -> {
                 dangerIndex += 1
                 "Peligro $dangerIndex"
+            }
+            MarkerType.ENEMY -> {
+                enemyIndex += 1
+                "Enemigo $enemyIndex"
+            }
+            MarkerType.ENEMY_HEAVY -> {
+                enemyHeavyIndex += 1
+                "Alta presencia $enemyHeavyIndex"
+            }
+            MarkerType.CONTACT -> {
+                contactIndex += 1
+                "Contacto $contactIndex"
             }
             MarkerType.CUSTOM -> if (label.isBlank()) "Marcador" else label
         }

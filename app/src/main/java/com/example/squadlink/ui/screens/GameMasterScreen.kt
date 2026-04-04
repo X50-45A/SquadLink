@@ -5,13 +5,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.squadlink.ui.map.FieldSelectionViewModel
 import com.example.squadlink.ui.session.GameSessionViewModel
@@ -27,9 +25,6 @@ fun GameMasterScreen(
     val fieldState by fieldVm.uiState.collectAsState()
     val selectedField = fieldState.selectedField
     var gameCode by remember { mutableStateOf("ALFA-${(1000..9999).random()}") }
-    var gmUser by remember { mutableStateOf("") }
-    var gmPass by remember { mutableStateOf("") }
-    var loginError by remember { mutableStateOf(false) }
     val gameStarted = sessionState.activeGameCode.isNotBlank()
 
     Scaffold(
@@ -52,40 +47,11 @@ fun GameMasterScreen(
                     .padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("Acceso Game Master", style = MaterialTheme.typography.titleLarge)
-                OutlinedTextField(
-                    value = gmUser,
-                    onValueChange = { gmUser = it },
-                    label = { Text("Usuario") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                Text("Acceso restringido", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    "Este panel es solo para cuentas Game Master. Cambia la cuenta en Perfil.",
+                    style = MaterialTheme.typography.bodyMedium
                 )
-                OutlinedTextField(
-                    value = gmPass,
-                    onValueChange = { gmPass = it },
-                    label = { Text("Clave") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation()
-                )
-                if (loginError) {
-                    Text("Credenciales incorrectas", color = MaterialTheme.colorScheme.error)
-                }
-                Button(
-                    onClick = {
-                        loginError = false
-                        if (gmUser == "gm" && gmPass == "squadlink") {
-                            sessionVm.setGameMaster(true)
-                        } else {
-                            loginError = true
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.Lock, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Entrar como GM")
-                }
             }
         } else {
             LazyColumn(
@@ -104,11 +70,11 @@ fun GameMasterScreen(
                         )
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
-                            Text("CÃ³digo de partida", style = MaterialTheme.typography.labelMedium)
+                            Text("Codigo de partida", style = MaterialTheme.typography.labelMedium)
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(gameCode, style = MaterialTheme.typography.headlineMedium)
                             Text(
-                                "Comparte este cÃ³digo con los jugadores",
+                                "Comparte este codigo con los jugadores",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                             )
@@ -169,7 +135,7 @@ fun GameMasterScreen(
                 item {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Marcadores tÃ¡cticos", style = MaterialTheme.typography.titleMedium)
+                            Text("Marcadores tacticos", style = MaterialTheme.typography.titleMedium)
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 "Coloca zonas seguras y banderas directamente en el mapa.",
@@ -195,6 +161,26 @@ fun GameMasterScreen(
                                     }
                                 )
                             }
+                        }
+                    }
+                }
+
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Equipos", style = MaterialTheme.typography.titleMedium)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Alpha", style = MaterialTheme.typography.labelLarge)
+                            Text(
+                                "Alpha-1, Alpha-2, Alpha-3",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Bravo", style = MaterialTheme.typography.labelLarge)
+                            Text(
+                                "Bravo-1, Bravo-2",
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
                     }
                 }

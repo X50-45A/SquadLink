@@ -3,6 +3,8 @@ package com.example.squadlink.ui.screens
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -11,9 +13,11 @@ import androidx.compose.ui.unit.sp
 
 @Composable
 fun HomeScreen(
+    sessionVm: com.example.squadlink.ui.session.GameSessionViewModel,
     onJoinGame: () -> Unit,
     onCreateGame: () -> Unit
 ) {
+    val sessionState by sessionVm.uiState.collectAsState()
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -37,24 +41,24 @@ fun HomeScreen(
 
         Spacer(modifier = Modifier.height(48.dp))
 
-        Button(
-            onClick = onJoinGame,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-        ) {
-            Text("Unirse a partida", fontSize = 16.sp)
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedButton(
-            onClick = onCreateGame,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-        ) {
-            Text("Crear partida (Game Master)", fontSize = 16.sp)
+        if (sessionState.isGameMaster) {
+            Button(
+                onClick = onCreateGame,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+            ) {
+                Text("Acceso Game Master", fontSize = 16.sp)
+            }
+        } else {
+            Button(
+                onClick = onJoinGame,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+            ) {
+                Text("Unirse a partida", fontSize = 16.sp)
+            }
         }
     }
 }

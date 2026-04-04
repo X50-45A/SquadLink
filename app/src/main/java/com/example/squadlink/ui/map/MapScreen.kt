@@ -10,7 +10,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.RectF
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -37,6 +36,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -48,13 +48,12 @@ import com.google.maps.android.compose.*
 import kotlinx.coroutines.delay
 import com.example.squadlink.ui.session.GameSessionViewModel
 import androidx.core.graphics.createBitmap
+import com.example.squadlink.R
 
 private val GridColor = Color(0x2200FF41)
 private val FieldFill = Color(0x1A4CAF50)
 private val FieldStroke = Color(0xFF76FF03)
 private val OutOfBoundsRed = Color(0xCCF44336)
-private val ObjectiveYellow = Color(0xFFFFD600)
-private val SafeZoneBlue = Color(0xFF29B6F6)
 
 @Composable
 fun MapScreen(
@@ -73,7 +72,7 @@ fun MapScreen(
 
     val mapStyle = remember {
         runCatching {
-            MapStyleOptions.loadRawResourceStyle(ctx, com.example.squadlink.R.raw.map_style_tactical)
+            MapStyleOptions.loadRawResourceStyle(ctx, R.raw.map_style_tactical)
         }.getOrNull()
     }
 
@@ -104,7 +103,9 @@ fun MapScreen(
 
     LocationUpdatesEffect(
         enabled = locationPermissionState.hasPermission,
-        onLocation = mapVm::onPlayerLocationUpdate
+        onLocation = { location ->
+            mapVm.onPlayerLocationUpdate(LatLng(location.latitude, location.longitude))
+        }
     )
 
     if (field == null) {
@@ -150,7 +151,6 @@ fun MapScreen(
                 onDismissAlert = mapVm::dismissOutOfBoundsAlert,
                 onMapLoaded = { mapLoaded = true },
                 onMapClick = { latLng ->
-                    if (!sessionState.isGameMaster) return@LandscapeMapLayout
                     val mode = markerMode ?: return@LandscapeMapLayout
                     val label = markerLabelFor(mode, customMarkerLabel)
                     mapVm.addTacticalMarker(mode, latLng, label)
@@ -169,7 +169,6 @@ fun MapScreen(
                 onDismissAlert = mapVm::dismissOutOfBoundsAlert,
                 onMapLoaded = { mapLoaded = true },
                 onMapClick = { latLng ->
-                    if (!sessionState.isGameMaster) return@PortraitMapLayout
                     val mode = markerMode ?: return@PortraitMapLayout
                     val label = markerLabelFor(mode, customMarkerLabel)
                     mapVm.addTacticalMarker(mode, latLng, label)
@@ -213,9 +212,11 @@ fun MapScreen(
             )
         }
 
-        if (sessionState.isGameMaster) {
+        val tools = markerToolsForRole(sessionState.isGameMaster)
+        if (tools.isNotEmpty()) {
             MarkerToolsPanel(
                 modifier = Modifier.align(Alignment.BottomStart).padding(12.dp),
+                tools = tools,
                 activeMode = markerMode,
                 customLabel = customMarkerLabel,
                 onCustomLabelChange = { customMarkerLabel = it },
@@ -317,28 +318,23 @@ private fun FieldListItem(field: AirsoftField, onSelect: (AirsoftField) -> Unit)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = field.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color.White
                 )
+                // Usamos locationName si existiera, o name
                 Text(
-                    text = "Geofence lista para cargar",
+                    text = field.name,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF76FF03)
+                    color = Color.Gray
                 )
             }
-            Button(onClick = { onSelect(field) }) {
-                Text("Abrir")
+            Button(
+                onClick = { onSelect(field) },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+            ) {
+                Text("Cargar")
             }
         }
-    }
-}
-
-@Composable
-private fun ChangeFieldButton(modifier: Modifier, onClick: () -> Unit, enabled: Boolean) {
-    OutlinedButton(onClick = onClick, modifier = modifier, enabled = enabled) {
-        Text("Cambiar campo")
     }
 }
 
@@ -375,7 +371,7 @@ private fun PortraitMapLayout(
             state.players.size
         )
         GridToggleFab(Modifier.align(Alignment.BottomEnd).padding(16.dp), state.gridVisible, onToggleGrid)
-        AnimatedVisibility(
+        androidx.compose.animation.AnimatedVisibility(
             visible = state.showOutOfBoundsAlert,
             modifier = Modifier.align(Alignment.TopCenter),
             enter = slideInVertically() + fadeIn(),
@@ -464,6 +460,7 @@ private fun TacticalGoogleMap(
         modifier = modifier,
         cameraPositionState = cameraState,
         properties = MapProperties(
+            mapType = MapType.TERRAIN,
             mapStyleOptions = mapStyle,
             isMyLocationEnabled = hasLocationPermission
         ),
@@ -475,170 +472,60 @@ private fun TacticalGoogleMap(
         onMapLoaded = onMapLoaded,
         onMapClick = onMapClick
     ) {
-        field.perimeter.forEach { polygon ->
+        field.perimeter.forEach { poly ->
             Polygon(
-                points = polygon,
+                points = poly,
                 fillColor = FieldFill,
                 strokeColor = FieldStroke,
-                strokeWidth = 4f,
-                geodesic = false
+                strokeWidth = 3f
             )
         }
 
         state.players.forEach { player ->
-            val icon = if (mapLoaded) {
-                bitmapDescriptorFromColor(
-                    if (player.isOutOfBounds) OutOfBoundsRed else Color(0xFF00E676)
-                )
-            } else {
-                null
-            }
+            val iconKey = if (player.isOutOfBounds) "player_out" else "player"
             Marker(
                 state = MarkerState(position = player.position),
                 title = player.name,
-                snippet = player.role,
-                icon = icon
+                icon = tacticalIcons[iconKey]
             )
         }
 
         state.tacticalMarkers.forEach { marker ->
-            val icon = if (mapLoaded) {
-                tacticalIconForMarker(tacticalIcons, marker)
-            } else {
-                null
-            }
             Marker(
                 state = MarkerState(position = marker.position),
                 title = marker.label,
-                icon = icon
+                icon = tacticalIcons[marker.type.name.lowercase()]
             )
         }
     }
 }
 
 @Composable
-private fun MapLoadErrorCard(
-    modifier: Modifier,
-    onRetry: () -> Unit
-) {
+private fun MapHud(modifier: Modifier, fieldName: String, playersIn: Int, playersTotal: Int) {
     Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xCCB71C1C)),
-        shape = RoundedCornerShape(10.dp)
-    ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("El mapa no ha cargado", color = Color.White, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                "Revisa la API key, los SHA-1 en Google Cloud y que el emulador tenga Google Play Services.",
-                color = Color.White,
-                style = MaterialTheme.typography.bodySmall
-            )
-            TextButton(onClick = onRetry) { Text("Reintentar", color = Color.White) }
-        }
-    }
-}
-
-@Composable
-private fun MarkerToolsPanel(
-    modifier: Modifier,
-    activeMode: MarkerType?,
-    customLabel: String,
-    onCustomLabelChange: (String) -> Unit,
-    onSelectMode: (MarkerType?) -> Unit
-) {
-    Card(
-        modifier = modifier.widthIn(max = 240.dp),
+        modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = Color(0xCC101810)),
-        shape = RoundedCornerShape(12.dp)
+        shape = RoundedCornerShape(8.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Marcadores", color = Color.White, style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarkerModeButton("Bandera", activeMode == MarkerType.OBJECTIVE) {
-                    onSelectMode(MarkerType.OBJECTIVE)
+        Column(modifier = Modifier.padding(8.dp)) {
+            Text(
+                fieldName,
+                style = MaterialTheme.typography.labelLarge,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.size(8.dp).padding(1.dp)) {
+                    Canvas(Modifier.fillMaxSize()) { drawCircle(Color(0xFF00FF41)) }
                 }
-                MarkerModeButton("Seguro", activeMode == MarkerType.SAFE_ZONE) {
-                    onSelectMode(MarkerType.SAFE_ZONE)
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarkerModeButton("Peligro", activeMode == MarkerType.DANGER) {
-                    onSelectMode(MarkerType.DANGER)
-                }
-                MarkerModeButton("Personal", activeMode == MarkerType.CUSTOM) {
-                    onSelectMode(MarkerType.CUSTOM)
-                }
-            }
-            if (activeMode == MarkerType.CUSTOM) {
-                OutlinedTextField(
-                    value = customLabel,
-                    onValueChange = onCustomLabelChange,
-                    singleLine = true,
-                    label = { Text("Etiqueta") },
-                    modifier = Modifier.fillMaxWidth()
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    "SQUAD: $playersIn/$playersTotal",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF00FF41)
                 )
             }
-            Text(
-                text = "Toca el mapa para colocar",
-                color = Color.White,
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-    }
-}
-
-@Composable
-private fun MarkerModeButton(label: String, selected: Boolean, onClick: () -> Unit) {
-    OutlinedButton(
-        onClick = onClick,
-        colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = if (selected) Color(0xFF1B3D1B) else Color.Transparent,
-            contentColor = Color.White
-        )
-    ) {
-        Text(label)
-    }
-}
-
-@Composable
-private fun MarkerPlacementHint(modifier: Modifier, label: String) {
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = Color(0xCC101810)),
-        shape = RoundedCornerShape(10.dp)
-    ) {
-        Text(
-            text = "Colocando: $label",
-            color = Color.White,
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-        )
-    }
-}
-
-private fun markerLabelFor(type: MarkerType, customLabel: String): String {
-    return when (type) {
-        MarkerType.OBJECTIVE -> "Bandera"
-        MarkerType.SAFE_ZONE -> "Zona segura"
-        MarkerType.DANGER -> "Peligro"
-        MarkerType.CUSTOM -> if (customLabel.isBlank()) "Marcador" else customLabel
-    }
-}
-
-@Composable
-private fun MapHud(modifier: Modifier, fieldName: String, playersInZone: Int, totalPlayers: Int) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xCC101810))
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Text(fieldName, style = MaterialTheme.typography.labelSmall, color = Color(0xFF76FF03))
-            Text(
-                "$playersInZone/$totalPlayers en zona",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White
-            )
         }
     }
 }
@@ -648,265 +535,293 @@ private fun GridToggleFab(modifier: Modifier, active: Boolean, onClick: () -> Un
     FloatingActionButton(
         onClick = onClick,
         modifier = modifier,
-        containerColor = Color(0xCC101810),
-        contentColor = if (active) Color(0xFF76FF03) else Color.Gray
+        containerColor = if (active) Color(0xFF2E7D32) else Color(0xCC101810),
+        contentColor = Color.White,
+        shape = RoundedCornerShape(8.dp)
     ) {
-        Icon(Icons.Default.GridOn, contentDescription = "Cuadricula tactica")
+        Icon(Icons.Default.GridOn, contentDescription = "Alternar cuadr\u00edcula")
+    }
+}
+
+@Composable
+private fun ChangeFieldButton(modifier: Modifier, onClick: () -> Unit, enabled: Boolean) {
+    FilledTonalButton(
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = Color(0xCC101810),
+            contentColor = Color.White
+        ),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+    ) {
+        Text("CAMBIAR CAMPO", style = MaterialTheme.typography.labelSmall)
     }
 }
 
 @Composable
 private fun OutOfBoundsAlert(onDismiss: () -> Unit) {
     Card(
-        modifier = Modifier.padding(top = 72.dp, start = 16.dp, end = 16.dp).fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xCCB71C1C)),
-        shape = RoundedCornerShape(8.dp)
+        colors = CardDefaults.cardColors(containerColor = OutOfBoundsRed),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.padding(16.dp).fillMaxWidth()
     ) {
-        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Warning, null, tint = Color.White, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "! FUERA DEL CAMPO - Regresa a la zona de juego",
-                color = Color.White,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.weight(1f)
-            )
-            TextButton(onClick = onDismiss) { Text("OK", color = Color.White) }
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(Icons.Default.Warning, contentDescription = null, tint = Color.White)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "\u00a1FUERA DE L\u00cdMITES!",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White
+                )
+                Text(
+                    "Est\u00e1s fuera del \u00e1rea de juego. Regresa al campo inmediatamente.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White
+                )
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, contentDescription = "Descartar", tint = Color.White)
+            }
         }
     }
 }
 
 @Composable
-private fun LocationPermissionCard(
-    modifier: Modifier,
-    onRequestPermission: () -> Unit
-) {
+private fun MapLoadErrorCard(modifier: Modifier, onRetry: () -> Unit) {
     Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xCC101810)),
-        shape = RoundedCornerShape(10.dp)
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = Color(0xCCB71C1C))
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Ubicacion desactivada", color = Color.White, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                "Activa la ubicacion para recibir alertas del geofence y funciones futuras.",
-                color = Color.White,
-                style = MaterialTheme.typography.bodySmall
-            )
-            Button(onClick = onRequestPermission) { Text("Activar") }
+        Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Error al cargar el mapa", color = Color.White)
+            TextButton(onClick = onRetry) {
+                Text("REINTENTAR", color = Color.White)
+            }
         }
     }
 }
 
 @Composable
-@SuppressLint("MissingPermission")
-private fun LocationUpdatesEffect(
-    enabled: Boolean,
-    onLocation: (LatLng) -> Unit
-) {
-    val context = LocalContext.current
-    val client = remember { LocationServices.getFusedLocationProviderClient(context) }
-    val request = remember {
-        LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 2000L)
-            .setMinUpdateIntervalMillis(1000L)
-            .setMaxUpdateDelayMillis(4000L)
-            .build()
+private fun MarkerPlacementHint(modifier: Modifier, label: String) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = Color(0xCC000000))
+    ) {
+        Text(
+            "Toca el mapa para colocar: $label",
+            modifier = Modifier.padding(8.dp),
+            color = Color.White,
+            style = MaterialTheme.typography.labelMedium
+        )
     }
-    val callback = remember {
-        object : LocationCallback() {
-            override fun onLocationResult(result: LocationResult) {
-                val location = result.lastLocation ?: return
-                onLocation(LatLng(location.latitude, location.longitude))
-            }
-        }
-    }
+}
 
-    DisposableEffect(enabled) {
-        if (enabled) {
-            val hasFine = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
-            val hasCoarse = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
-            if (!hasFine && !hasCoarse) {
-                return@DisposableEffect onDispose { }
+@Composable
+private fun MarkerToolsPanel(
+    modifier: Modifier,
+    tools: List<com.example.squadlink.ui.map.MarkerType>,
+    activeMode: com.example.squadlink.ui.map.MarkerType?,
+    customLabel: String,
+    onCustomLabelChange: (String) -> Unit,
+    onSelectMode: (com.example.squadlink.ui.map.MarkerType) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (expanded) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xCC101810)),
+                modifier = Modifier.width(200.dp)
+            ) {
+                Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Herramientas T\u00e1cticas", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                    tools.forEach { type ->
+                        val isSelected = activeMode == type
+                        TextButton(
+                            onClick = { onSelectMode(type) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = if (isSelected) Color(0xFF76FF03) else Color.White
+                            )
+                        ) {
+                            Text(type.name, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    if (activeMode == com.example.squadlink.ui.map.MarkerType.CUSTOM) {
+                        OutlinedTextField(
+                            value = customLabel,
+                            onValueChange = onCustomLabelChange,
+                            label = { Text("Etiqueta", fontSize = 10.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
             }
-            client.requestLocationUpdates(request, callback, Looper.getMainLooper())
         }
-        onDispose { client.removeLocationUpdates(callback) }
+
+        FloatingActionButton(
+            onClick = { expanded = !expanded },
+            containerColor = Color(0xFF1B5E20),
+            contentColor = Color.White
+        ) {
+            Icon(
+                if (expanded) Icons.Default.Close else Icons.Default.Warning,
+                contentDescription = "Herramientas"
+            )
+        }
     }
 }
 
 private fun drawTacticalGrid(scope: DrawScope) {
-    val step = 80f
-    var x = 0f
-    while (x < scope.size.width) {
-        scope.drawLine(GridColor, Offset(x, 0f), Offset(x, scope.size.height), strokeWidth = 0.5f)
-        x += step
+    val size = scope.size
+    val step = 100f
+    // Simple grid lines for visual effect
+    for (x in 0..(size.width / step).toInt()) {
+        scope.drawLine(GridColor, Offset(x * step, 0f), Offset(x * step, size.height))
     }
-    var y = 0f
-    while (y < scope.size.height) {
-        scope.drawLine(GridColor, Offset(0f, y), Offset(scope.size.width, y), strokeWidth = 0.5f)
-        y += step
+    for (y in 0..(size.height / step).toInt()) {
+        scope.drawLine(GridColor, Offset(0f, y * step), Offset(size.width, y * step))
     }
 }
-
-private fun bitmapDescriptorFromColor(color: Color): BitmapDescriptor {
-    val hsv = FloatArray(3)
-    android.graphics.Color.colorToHSV(
-        android.graphics.Color.argb(
-            (color.alpha * 255).toInt(),
-            (color.red * 255).toInt(),
-            (color.green * 255).toInt(),
-            (color.blue * 255).toInt()
-        ),
-        hsv
-    )
-    return BitmapDescriptorFactory.defaultMarker(hsv[0])
-}
-
-private enum class TacticalShape { DIAMOND, SQUARE, TRIANGLE, CIRCLE }
 
 @Composable
 private fun rememberTacticalMarkerIcons(): Map<String, BitmapDescriptor> {
-    return remember { mutableMapOf() }
-}
-
-private fun tacticalIconForMarker(
-    cache: Map<String, BitmapDescriptor>,
-    marker: TacticalMarker
-): BitmapDescriptor? {
-    val text = markerShortLabel(marker)
-    val key = "${marker.type.name}::$text"
-    val existing = cache[key]
-    if (existing != null) return existing
-    val icon = when (marker.type) {
-        MarkerType.OBJECTIVE ->
-            tacticalMarkerIcon(TacticalShape.DIAMOND, ObjectiveYellow, Color(0xFF101810), text)
-        MarkerType.SAFE_ZONE ->
-            tacticalMarkerIcon(TacticalShape.SQUARE, SafeZoneBlue, Color(0xFF101810), text)
-        MarkerType.DANGER ->
-            tacticalMarkerIcon(TacticalShape.TRIANGLE, OutOfBoundsRed, Color(0xFF101810), text)
-        MarkerType.CUSTOM ->
-            tacticalMarkerIcon(TacticalShape.CIRCLE, Color.White, Color(0xFF101810), text)
-    }
-    if (cache is MutableMap) {
-        cache[key] = icon
-    }
-    return icon
-}
-
-private fun markerShortLabel(marker: TacticalMarker): String {
-    return when (marker.type) {
-        MarkerType.OBJECTIVE -> marker.label.removePrefix("Bandera ").trim().take(2).uppercase()
-        MarkerType.SAFE_ZONE -> "SZ"
-        MarkerType.DANGER -> "DNG"
-        MarkerType.CUSTOM -> marker.label.take(3).uppercase()
+    val ctx = LocalContext.current
+    return remember(ctx) {
+        mapOf(
+            "player" to createMarkerIcon(ctx, Color(0xFF00FF41), true),
+            "player_out" to createMarkerIcon(ctx, Color(0xFFF44336), true),
+            "objective" to createMarkerIcon(ctx, Color(0xFFFFD600), false),
+            "safe_zone" to createMarkerIcon(ctx, Color(0xFF29B6F6), false),
+            "enemy" to createMarkerIcon(ctx, Color(0xFFD32F2F), false),
+            "custom" to createMarkerIcon(ctx, Color.White, false)
+        )
     }
 }
 
-private fun tacticalMarkerIcon(
-    shape: TacticalShape,
-    stroke: Color,
-    fill: Color,
-    text: String
-): BitmapDescriptor {
-    val size = 72
-    val bitmap = createBitmap(size, size)
+private fun createMarkerIcon(context: Context, color: Color, isPlayer: Boolean): BitmapDescriptor {
+    val size = 64
+    val bitmap = createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
-    val padding = 12f
-    val rect = RectF(padding, padding, size - padding, size - padding)
+    val paint = Paint().apply {
+        this.color = color.toArgb()
+        isAntiAlias = true
+    }
 
-    val path = Path().apply {
-        when (shape) {
-            TacticalShape.DIAMOND -> {
-                moveTo(size / 2f, rect.top)
-                lineTo(rect.right, size / 2f)
-                lineTo(size / 2f, rect.bottom)
-                lineTo(rect.left, size / 2f)
-                close()
-            }
-            TacticalShape.SQUARE -> {
-                addRect(rect, Path.Direction.CW)
-            }
-            TacticalShape.TRIANGLE -> {
-                moveTo(size / 2f, rect.top)
-                lineTo(rect.right, rect.bottom)
-                lineTo(rect.left, rect.bottom)
-                close()
-            }
-            TacticalShape.CIRCLE -> {
-                addOval(rect, Path.Direction.CW)
-            }
+    if (isPlayer) {
+        val path = Path().apply {
+            moveTo(size / 2f, 0f)
+            lineTo(size.toFloat(), size.toFloat())
+            lineTo(size / 2f, size * 0.75f)
+            lineTo(0f, size.toFloat())
+            close()
         }
+        canvas.drawPath(path, paint)
+    } else {
+        canvas.drawCircle(size / 2f, size / 2f, size / 3f, paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 4f
+        paint.color = android.graphics.Color.BLACK
+        canvas.drawCircle(size / 2f, size / 2f, size / 3f, paint)
     }
-
-    val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = fill.toArgb()
-    }
-    canvas.drawPath(path, fillPaint)
-
-    val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = 6f
-        color = stroke.toArgb()
-    }
-    canvas.drawPath(path, strokePaint)
-
-    val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = stroke.toArgb()
-        textAlign = Paint.Align.CENTER
-        textSize = 20f
-        typeface = android.graphics.Typeface.DEFAULT_BOLD
-    }
-    canvas.drawText(text, size / 2f, size / 2f + 7f, textPaint)
 
     return BitmapDescriptorFactory.fromBitmap(bitmap)
 }
 
-private data class LocationPermissionState(
-    val hasPermission: Boolean,
-    val requestPermission: () -> Unit
-)
+private fun markerLabelFor(mode: com.example.squadlink.ui.map.MarkerType, custom: String): String = when (mode) {
+    com.example.squadlink.ui.map.MarkerType.ENEMY -> "Enemigo"
+    com.example.squadlink.ui.map.MarkerType.OBJECTIVE -> "Objetivo"
+    com.example.squadlink.ui.map.MarkerType.CUSTOM -> custom.ifBlank { "Marcador" }
+    else -> mode.name
+}
+
+private fun markerToolsForRole(isGm: Boolean): List<com.example.squadlink.ui.map.MarkerType> {
+    return if (isGm) {
+        listOf(com.example.squadlink.ui.map.MarkerType.ENEMY, com.example.squadlink.ui.map.MarkerType.OBJECTIVE, com.example.squadlink.ui.map.MarkerType.CUSTOM)
+    } else {
+        listOf(com.example.squadlink.ui.map.MarkerType.ENEMY, com.example.squadlink.ui.map.MarkerType.CUSTOM)
+    }
+}
 
 @Composable
-private fun rememberLocationPermissionState(): LocationPermissionState {
+private fun LocationPermissionCard(modifier: Modifier, onRequestPermission: () -> Unit) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xEE101010))
+    ) {
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Se requiere permiso de ubicaci\u00f3n para mostrarte en el mapa.",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White
+            )
+            Button(onClick = onRequestPermission) {
+                Text("Permitir")
+            }
+        }
+    }
+}
+
+@Composable
+fun rememberLocationPermissionState(): LocationPermissionState {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val hasPermissionState = remember { mutableStateOf(hasLocationPermission(context)) }
+    var hasPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        )
+    }
     val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { result ->
-        hasPermissionState.value = result.values.any { it }
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasPermission = isGranted
     }
 
-    DisposableEffect(lifecycleOwner, context) {
+    return remember(hasPermission) {
+        LocationPermissionState(hasPermission) { launcher.launch(Manifest.permission.ACCESS_FINE_LOCATION) }
+    }
+}
+
+class LocationPermissionState(val hasPermission: Boolean, val requestPermission: () -> Unit)
+
+@SuppressLint("MissingPermission")
+@Composable
+fun LocationUpdatesEffect(enabled: Boolean, onLocation: (android.location.Location) -> Unit) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(enabled, lifecycleOwner) {
+        val client = LocationServices.getFusedLocationProviderClient(context)
+        val callback = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                result.lastLocation?.let { onLocation(it) }
+            }
+        }
+
+        if (enabled) {
+            val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000L).build()
+            client.requestLocationUpdates(request, callback, Looper.getMainLooper())
+        }
+
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                hasPermissionState.value = hasLocationPermission(context)
+            if (event == Lifecycle.Event.ON_STOP) {
+                client.removeLocationUpdates(callback)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
 
-    return LocationPermissionState(
-        hasPermission = hasPermissionState.value,
-        requestPermission = { launcher.launch(LocationPermissions) }
-    )
-}
-
-private val LocationPermissions = arrayOf(
-    Manifest.permission.ACCESS_FINE_LOCATION,
-    Manifest.permission.ACCESS_COARSE_LOCATION
-)
-
-private fun hasLocationPermission(context: Context): Boolean {
-    return LocationPermissions.any { permission ->
-        ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+        onDispose {
+            client.removeLocationUpdates(callback)
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 }

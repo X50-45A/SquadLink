@@ -26,6 +26,7 @@ fun JoinGameScreen(
     var playerName by remember { mutableStateOf("") }
     val fieldState by fieldVm.uiState.collectAsState()
     val selectedField = fieldState.selectedField
+    val sessionState by sessionVm.uiState.collectAsState()
 
     Scaffold(
         topBar = {
@@ -98,15 +99,25 @@ fun JoinGameScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-    Button(
-        onClick = {
-            sessionVm.joinGame(gameCode)
-            onGameJoined()
-        },
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(56.dp),
-        enabled = gameCode.isNotBlank() && playerName.isNotBlank() && selectedField != null
+            if (sessionState.isGameMaster) {
+                Text(
+                    "Esta cuenta es Game Master y no puede unirse como jugador.",
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+
+            Button(
+                onClick = {
+                    sessionVm.joinGame(gameCode)
+                    onGameJoined()
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                enabled = !sessionState.isGameMaster &&
+                    gameCode.isNotBlank() &&
+                    playerName.isNotBlank() &&
+                    selectedField != null
             ) {
                 Text("Entrar")
             }

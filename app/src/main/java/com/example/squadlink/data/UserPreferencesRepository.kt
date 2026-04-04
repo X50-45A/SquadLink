@@ -24,6 +24,7 @@ class UserPreferencesRepository(private val context: Context) {
         val KEY_FIELD_ID       = stringPreferencesKey("selected_field_id")
         val KEY_ACTIVE_GAME    = stringPreferencesKey("active_game_code")
         val KEY_IS_GM          = booleanPreferencesKey("is_game_master")
+        val KEY_ACTIVE_USER    = stringPreferencesKey("active_user_name")
     }
 
     val darkTheme: Flow<Boolean> = context.dataStore.data
@@ -46,6 +47,9 @@ class UserPreferencesRepository(private val context: Context) {
 
     val isGameMaster: Flow<Boolean> = context.dataStore.data
         .map { prefs -> prefs[KEY_IS_GM] ?: false }
+
+    val activeUserName: Flow<String> = context.dataStore.data
+        .map { prefs -> prefs[KEY_ACTIVE_USER] ?: "" }
 
     suspend fun setDarkTheme(enabled: Boolean) {
         context.dataStore.edit { it[KEY_DARK_THEME] = enabled }
@@ -81,5 +85,9 @@ class UserPreferencesRepository(private val context: Context) {
 
     suspend fun setIsGameMaster(enabled: Boolean) {
         context.dataStore.edit { it[KEY_IS_GM] = enabled }
+    }
+
+    suspend fun setActiveUserName(name: String) {
+        context.dataStore.edit { it[KEY_ACTIVE_USER] = name }
     }
 }
