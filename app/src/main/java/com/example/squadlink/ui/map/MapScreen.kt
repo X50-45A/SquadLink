@@ -1,6 +1,7 @@
 package com.example.squadlink.ui.map
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -36,7 +37,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -46,6 +46,7 @@ import com.google.android.gms.location.*
 import com.google.android.gms.maps.model.*
 import com.google.maps.android.compose.*
 import kotlinx.coroutines.delay
+import androidx.core.graphics.createBitmap
 
 private val GridColor = Color(0x2200FF41)
 private val FieldFill = Color(0x1A4CAF50)
@@ -140,6 +141,7 @@ fun MapScreen(
                 mapStyle = mapStyle,
                 field = field,
                 hasLocationPermission = locationPermissionState.hasPermission,
+                mapLoaded = mapLoaded,
                 onToggleGrid = mapVm::toggleGrid,
                 onDismissAlert = mapVm::dismissOutOfBoundsAlert,
                 onMapLoaded = { mapLoaded = true },
@@ -157,6 +159,7 @@ fun MapScreen(
                 mapStyle = mapStyle,
                 field = field,
                 hasLocationPermission = locationPermissionState.hasPermission,
+                mapLoaded = mapLoaded,
                 onToggleGrid = mapVm::toggleGrid,
                 onDismissAlert = mapVm::dismissOutOfBoundsAlert,
                 onMapLoaded = { mapLoaded = true },
@@ -337,6 +340,7 @@ private fun PortraitMapLayout(
     mapStyle: MapStyleOptions?,
     field: AirsoftField,
     hasLocationPermission: Boolean,
+    mapLoaded: Boolean,
     onToggleGrid: () -> Unit,
     onDismissAlert: () -> Unit,
     onMapLoaded: () -> Unit,
@@ -350,6 +354,7 @@ private fun PortraitMapLayout(
             mapStyle = mapStyle,
             field = field,
             hasLocationPermission = hasLocationPermission,
+            mapLoaded = mapLoaded,
             onMapLoaded = onMapLoaded,
             onMapClick = onMapClick
         )
@@ -377,6 +382,7 @@ private fun LandscapeMapLayout(
     mapStyle: MapStyleOptions?,
     field: AirsoftField,
     hasLocationPermission: Boolean,
+    mapLoaded: Boolean,
     onToggleGrid: () -> Unit,
     onDismissAlert: () -> Unit,
     onMapLoaded: () -> Unit,
@@ -391,6 +397,7 @@ private fun LandscapeMapLayout(
                 mapStyle = mapStyle,
                 field = field,
                 hasLocationPermission = hasLocationPermission,
+                mapLoaded = mapLoaded,
                 onMapLoaded = onMapLoaded,
                 onMapClick = onMapClick
             )
@@ -438,10 +445,11 @@ private fun TacticalGoogleMap(
     mapStyle: MapStyleOptions?,
     field: AirsoftField,
     hasLocationPermission: Boolean,
+    mapLoaded: Boolean,
     onMapLoaded: () -> Unit,
     onMapClick: (LatLng) -> Unit
 ) {
-    val tacticalIcons = rememberTacticalMarkerIcons()
+    val tacticalIcons = if (mapLoaded) rememberTacticalMarkerIcons() else emptyMap()
     GoogleMap(
         modifier = modifier,
         cameraPositionState = cameraState,
@@ -468,18 +476,23 @@ private fun TacticalGoogleMap(
         }
 
         state.players.forEach { player ->
+            val icon = if (mapLoaded) {
+                bitmapDescriptorFromColor(
+                    if (player.isOutOfBounds) OutOfBoundsRed else Color(0xFF00E676)
+                )
+            } else {
+                null
+            }
             Marker(
                 state = MarkerState(position = player.position),
                 title = player.name,
                 snippet = player.role,
-                icon = bitmapDescriptorFromColor(
-                    if (player.isOutOfBounds) OutOfBoundsRed else Color(0xFF00E676)
-                )
+                icon = icon
             )
         }
 
         state.tacticalMarkers.forEach { marker ->
-            val icon = tacticalIcons[marker.type]
+            val icon = if (mapLoaded) tacticalIcons[marker.type] else null
             Marker(
                 state = MarkerState(position = marker.position),
                 title = marker.label,
@@ -672,6 +685,7 @@ private fun LocationPermissionCard(
 }
 
 @Composable
+@SuppressLint("MissingPermission")
 private fun LocationUpdatesEffect(
     enabled: Boolean,
     onLocation: (LatLng) -> Unit
@@ -695,22 +709,16 @@ private fun LocationUpdatesEffect(
 
     DisposableEffect(enabled) {
         if (enabled) {
-            if (ActivityCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.ACCESS_FINE_LOCATION
-                ) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                // TODO: Consider calling
-                //    ActivityCompat#requestPermissions
-                // here to request the missing permissions, and then overriding
-                //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                //                                          int[] grantResults)
-                // to handle the case where the user grants the permission. See the documentation
-                // for ActivityCompat#requestPermissions for more details.
-                return
+            val hasFine = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+            val hasCoarse = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!hasFine && !hasCoarse) {
+                return@DisposableEffect onDispose { }
             }
             client.requestLocationUpdates(request, callback, Looper.getMainLooper())
         }
@@ -766,7 +774,7 @@ private fun tacticalMarkerIcon(
     fill: Color
 ): BitmapDescriptor {
     val size = 72
-    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val bitmap = createBitmap(size, size)
     val canvas = Canvas(bitmap)
     val padding = 12f
     val rect = RectF(padding, padding, size - padding, size - padding)
