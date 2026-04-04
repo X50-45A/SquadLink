@@ -32,6 +32,7 @@ data class MapUiState(
     val field: AirsoftField? = null,
     val players: List<PlayerMarker> = emptyList(),
     val tacticalMarkers: List<TacticalMarker> = emptyList(),
+    val markerMode: MarkerType? = null,
     val currentPlayerOutOfBounds: Boolean = false,
     val showOutOfBoundsAlert: Boolean = false,
     val gridVisible: Boolean = true
@@ -70,6 +71,7 @@ class MapViewModel : ViewModel() {
             it.copy(
                 field = field,
                 tacticalMarkers = emptyList(),
+                markerMode = null,
                 showOutOfBoundsAlert = false,
                 currentPlayerOutOfBounds = false
             )
@@ -126,7 +128,11 @@ class MapViewModel : ViewModel() {
             position = position,
             type = type
         )
-        _uiState.update { it.copy(tacticalMarkers = it.tacticalMarkers + marker) }
+        _uiState.update { it.copy(tacticalMarkers = it.tacticalMarkers + marker, markerMode = null) }
+    }
+
+    fun setMarkerMode(type: MarkerType?) {
+        _uiState.update { it.copy(markerMode = type) }
     }
 
     fun dismissOutOfBoundsAlert() {

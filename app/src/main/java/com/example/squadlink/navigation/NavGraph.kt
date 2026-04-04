@@ -13,6 +13,7 @@ import com.example.squadlink.ui.screens.JoinGameScreen
 import com.example.squadlink.ui.screens.LoginScreen
 import com.example.squadlink.ui.map.MapScreen
 import com.example.squadlink.ui.map.FieldSelectionViewModel
+import com.example.squadlink.ui.map.MapViewModel
 import com.example.squadlink.ui.session.GameSessionViewModel
 import com.example.squadlink.ui.screens.ProfileScreen
 import com.example.squadlink.ui.screens.SquadScreen
@@ -23,6 +24,7 @@ import com.example.squadlink.ui.profile.ProfileViewModel
 @Composable
 fun NavGraph(
     navController: NavHostController,
+    mapVm: MapViewModel,
     startDestination: String = Screen.Login.route
 ) {
     NavHost(
@@ -84,7 +86,7 @@ fun NavGraph(
             val sessionVm: GameSessionViewModel = viewModel(
                 factory = GameSessionViewModel.Factory(UserPreferencesRepository(context))
             )
-            MapScreen(fieldVm = fieldVm, sessionVm = sessionVm)
+            MapScreen(fieldVm = fieldVm, sessionVm = sessionVm, mapVm = mapVm)
         }
 
         composable(Screen.Squad.route) {
@@ -132,7 +134,9 @@ fun NavGraph(
             GameMasterScreen(
                 fieldVm = fieldVm,
                 sessionVm = sessionVm,
-                onBack = { navController.popBackStack() }
+                mapVm = mapVm,
+                onBack = { navController.popBackStack() },
+                onOpenMap = { navController.navigate(Screen.Map.route) }
             )
         }
     }

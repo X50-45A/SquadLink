@@ -88,9 +88,9 @@ fun MapScreen(
     var showFieldPicker by rememberSaveable { mutableStateOf(field == null) }
     var mapLoaded by remember { mutableStateOf(false) }
     var showMapError by remember { mutableStateOf(false) }
-    var markerMode by remember { mutableStateOf<MarkerType?>(null) }
     var customMarkerLabel by remember { mutableStateOf("") }
     val mapLocked = sessionState.activeGameCode.isNotBlank()
+    val markerMode = mapState.markerMode
 
     LaunchedEffect(locationPermissionState.hasPermission, requestedLocationPermission) {
         if (!locationPermissionState.hasPermission && !requestedLocationPermission) {
@@ -161,7 +161,7 @@ fun MapScreen(
                     val mode = markerMode ?: return@LandscapeMapLayout
                     val label = markerLabelFor(mode, customMarkerLabel)
                     mapVm.addTacticalMarker(mode, latLng, label)
-                    markerMode = null
+                    mapVm.setMarkerMode(null)
                 }
             )
         } else {
@@ -179,7 +179,7 @@ fun MapScreen(
                     val mode = markerMode ?: return@PortraitMapLayout
                     val label = markerLabelFor(mode, customMarkerLabel)
                     mapVm.addTacticalMarker(mode, latLng, label)
-                    markerMode = null
+                    mapVm.setMarkerMode(null)
                 }
             )
         }
@@ -227,7 +227,7 @@ fun MapScreen(
                 activeMode = markerMode,
                 customLabel = customMarkerLabel,
                 onCustomLabelChange = { customMarkerLabel = it },
-                onSelectMode = { markerMode = it }
+                onSelectMode = { mapVm.setMarkerMode(it) }
             )
         }
 

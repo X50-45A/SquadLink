@@ -14,10 +14,16 @@ import androidx.compose.ui.platform.LocalContext
 private val DarkColorScheme = darkColorScheme(
     primary = NightPrimary,
     onPrimary = NightOnPrimary,
+    primaryContainer = NightPrimaryContainer,
+    onPrimaryContainer = NightOnPrimaryContainer,
     secondary = NightSecondary,
     onSecondary = NightOnSecondary,
+    secondaryContainer = NightSecondaryContainer,
+    onSecondaryContainer = NightOnSecondaryContainer,
     tertiary = NightTertiary,
     onTertiary = NightOnTertiary,
+    tertiaryContainer = NightTertiaryContainer,
+    onTertiaryContainer = NightOnTertiaryContainer,
     background = NightBackground,
     onBackground = NightOnBackground,
     surface = NightSurface,
@@ -25,16 +31,23 @@ private val DarkColorScheme = darkColorScheme(
     surfaceVariant = NightSurfaceVariant,
     onSurfaceVariant = NightOnSurfaceVariant,
     outline = NightOutline,
-    outlineVariant = NightOutline
+    outlineVariant = NightOutline,
+    surfaceTint = NightPrimary
 )
 
 private val LightColorScheme = lightColorScheme(
     primary = OlivePrimary,
     onPrimary = OliveOnPrimary,
+    primaryContainer = OlivePrimaryContainer,
+    onPrimaryContainer = OliveOnPrimaryContainer,
     secondary = OliveSecondary,
     onSecondary = OliveOnSecondary,
+    secondaryContainer = OliveSecondaryContainer,
+    onSecondaryContainer = OliveOnSecondaryContainer,
     tertiary = KhakiTertiary,
     onTertiary = KhakiOnTertiary,
+    tertiaryContainer = KhakiTertiaryContainer,
+    onTertiaryContainer = KhakiOnTertiaryContainer,
     background = SandBackground,
     onBackground = SandOnBackground,
     surface = SandSurface,
@@ -42,7 +55,8 @@ private val LightColorScheme = lightColorScheme(
     surfaceVariant = SandSurfaceVariant,
     onSurfaceVariant = SandOnSurfaceVariant,
     outline = SandOutline,
-    outlineVariant = SandOutline
+    outlineVariant = SandOutline,
+    surfaceTint = OlivePrimary
 )
 
 @Composable
@@ -65,6 +79,7 @@ fun SquadLinkTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
+        shapes = TacticalShapes,
         content = content
     )
 }

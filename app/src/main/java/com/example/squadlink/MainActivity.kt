@@ -6,6 +6,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBox
@@ -18,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
@@ -25,7 +28,9 @@ import com.example.squadlink.data.UserPreferencesRepository
 import com.example.squadlink.navigation.NavGraph
 import com.example.squadlink.navigation.Screen
 import com.example.squadlink.ui.AppViewModel
+import com.example.squadlink.ui.map.MapViewModel
 import com.example.squadlink.ui.theme.SquadLinkTheme
+import com.example.squadlink.ui.theme.TacticalBackground
 
 class MainActivity : ComponentActivity() {
 
@@ -80,6 +85,7 @@ private fun bottomNavScreensForRole(isGameMaster: Boolean): List<String> {
 fun SquadLinkApp() {
     val context = LocalContext.current
     val repo = remember { UserPreferencesRepository(context) }
+    val mapVm: MapViewModel = viewModel()
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -101,10 +107,14 @@ fun SquadLinkApp() {
             }
         }
     ) { innerPadding ->
-        NavGraph(
-            navController = navController,
-            startDestination = Screen.Login.route
-        )
+        Box(modifier = Modifier.fillMaxSize()) {
+            TacticalBackground(modifier = Modifier.matchParentSize())
+            NavGraph(
+                navController = navController,
+                mapVm = mapVm,
+                startDestination = Screen.Login.route
+            )
+        }
     }
 }
 
