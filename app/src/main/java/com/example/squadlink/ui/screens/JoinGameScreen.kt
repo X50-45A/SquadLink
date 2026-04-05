@@ -11,15 +11,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.example.squadlink.ui.map.FieldSelectionViewModel
+import com.example.squadlink.ui.session.GameSessionViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JoinGameScreen(
+    fieldVm: FieldSelectionViewModel,
+    sessionVm: GameSessionViewModel,
     onGameJoined: () -> Unit,
     onBack: () -> Unit
 ) {
     var gameCode by remember { mutableStateOf("") }
     var playerName by remember { mutableStateOf("") }
+    val fieldState by fieldVm.uiState.collectAsState()
+    val selectedField = fieldState.selectedField
+    val sessionState by sessionVm.uiState.collectAsState()
 
     Scaffold(
         topBar = {
@@ -66,12 +73,51 @@ fun JoinGameScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            Text(
+                text = "Campo de airsoft",
+                style = MaterialTheme.typography.titleSmall
+            )
+
+            if (fieldState.fields.isEmpty()) {
+                Text("No hay campos disponibles")
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    fieldState.fields.forEach { field ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = field.id == selectedField?.id,
+                                onClick = { fieldVm.selectField(field) }
+                            )
+                            Text(field.name)
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (sessionState.isGameMaster) {
+                Text(
+                    "Esta cuenta es Game Master y no puede unirse como jugador.",
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+
             Button(
-                onClick = onGameJoined,
+                onClick = {
+                    sessionVm.joinGame(gameCode)
+                    onGameJoined()
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
-                enabled = gameCode.isNotBlank() && playerName.isNotBlank()
+                enabled = !sessionState.isGameMaster &&
+                    gameCode.isNotBlank() &&
+                    playerName.isNotBlank() &&
+                    selectedField != null
             ) {
                 Text("Entrar")
             }
