@@ -12,32 +12,58 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
+    primary = NightPrimary,
+    onPrimary = NightOnPrimary,
+    primaryContainer = NightPrimaryContainer,
+    onPrimaryContainer = NightOnPrimaryContainer,
+    secondary = NightSecondary,
+    onSecondary = NightOnSecondary,
+    secondaryContainer = NightSecondaryContainer,
+    onSecondaryContainer = NightOnSecondaryContainer,
+    tertiary = NightTertiary,
+    onTertiary = NightOnTertiary,
+    tertiaryContainer = NightTertiaryContainer,
+    onTertiaryContainer = NightOnTertiaryContainer,
+    background = NightBackground,
+    onBackground = NightOnBackground,
+    surface = NightSurface,
+    onSurface = NightOnSurface,
+    surfaceVariant = NightSurfaceVariant,
+    onSurfaceVariant = NightOnSurfaceVariant,
+    outline = NightOutline,
+    outlineVariant = NightOutline,
+    surfaceTint = NightPrimary
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
-
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
+    primary = OlivePrimary,
+    onPrimary = OliveOnPrimary,
+    primaryContainer = OlivePrimaryContainer,
+    onPrimaryContainer = OliveOnPrimaryContainer,
+    secondary = OliveSecondary,
+    onSecondary = OliveOnSecondary,
+    secondaryContainer = OliveSecondaryContainer,
+    onSecondaryContainer = OliveOnSecondaryContainer,
+    tertiary = KhakiTertiary,
+    onTertiary = KhakiOnTertiary,
+    tertiaryContainer = KhakiTertiaryContainer,
+    onTertiaryContainer = KhakiOnTertiaryContainer,
+    background = SandBackground,
+    onBackground = SandOnBackground,
+    surface = SandSurface,
+    onSurface = SandOnSurface,
+    surfaceVariant = SandSurfaceVariant,
+    onSurfaceVariant = SandOnSurfaceVariant,
+    outline = SandOutline,
+    outlineVariant = SandOutline,
+    surfaceTint = OlivePrimary
 )
 
 @Composable
 fun SquadLinkTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
@@ -53,6 +79,7 @@ fun SquadLinkTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
+        shapes = TacticalShapes,
         content = content
     )
 }

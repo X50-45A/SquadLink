@@ -6,6 +6,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBox
@@ -17,6 +19,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
@@ -24,7 +28,9 @@ import com.example.squadlink.data.UserPreferencesRepository
 import com.example.squadlink.navigation.NavGraph
 import com.example.squadlink.navigation.Screen
 import com.example.squadlink.ui.AppViewModel
+import com.example.squadlink.ui.map.MapViewModel
 import com.example.squadlink.ui.theme.SquadLinkTheme
+import com.example.squadlink.ui.theme.TacticalBackground
 
 class MainActivity : ComponentActivity() {
 
@@ -54,55 +60,72 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Screens that should show the bottom navigation bar
-private val bottomNavScreens = listOf(
-    Screen.Home.route,
-    Screen.Map.route,
-    Screen.Squad.route,
-    Screen.Profile.route,
-    Screen.Settings.route
-)
-
 data class BottomNavItem(
     val label: String,
     val icon: ImageVector,
     val route: String
 )
 
-val bottomNavItems = listOf(
-    BottomNavItem("Lobby", Icons.Default.Home, Screen.Home.route),
-    BottomNavItem("Mapa", Icons.Default.LocationOn, Screen.Map.route),
-    BottomNavItem("Escuadrón", Icons.Default.AccountBox, Screen.Squad.route),
-    BottomNavItem("Perfil", Icons.Default.Person, Screen.Profile.route),
-    BottomNavItem("Ajustes", Icons.Default.Settings, Screen.Settings.route),
-)
+private fun bottomNavItemsForRole(isGameMaster: Boolean): List<BottomNavItem> {
+    val squadLabel = if (isGameMaster) "Jugadores" else "Escuadron"
+    return listOf(
+        BottomNavItem("Lobby", Icons.Default.Home, Screen.Home.route),
+        BottomNavItem("Mapa", Icons.Default.LocationOn, Screen.Map.route),
+        BottomNavItem(squadLabel, Icons.Default.AccountBox, Screen.Squad.route),
+        BottomNavItem("Perfil", Icons.Default.Person, Screen.Profile.route),
+        BottomNavItem("Ajustes", Icons.Default.Settings, Screen.Settings.route)
+    )
+}
+
+private fun bottomNavScreensForRole(isGameMaster: Boolean): List<String> {
+    return bottomNavItemsForRole(isGameMaster).map { it.route }
+}
 
 @Composable
 fun SquadLinkApp() {
+    val context = LocalContext.current
+    val repo = remember { UserPreferencesRepository(context) }
+    val mapVm: MapViewModel = viewModel()
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    val showBottomBar = currentRoute in bottomNavScreens
+    val isGameMaster by repo.isGameMaster.collectAsState(initial = false)
+    val activeUser by repo.activeUserName.collectAsState(initial = "")
+    val bottomNavItems = remember(isGameMaster) { bottomNavItemsForRole(isGameMaster) }
+    val bottomNavScreens = remember(isGameMaster) { bottomNavScreensForRole(isGameMaster) }
+    val showBottomBar = activeUser.isNotBlank() && currentRoute in bottomNavScreens
 
     Scaffold(
         bottomBar = {
             if (showBottomBar) {
-                SquadLinkBottomNav(navController = navController, currentRoute = currentRoute)
+                SquadLinkBottomNav(
+                    navController = navController,
+                    currentRoute = currentRoute,
+                    items = bottomNavItems
+                )
             }
         }
     ) { innerPadding ->
-        NavGraph(
-            navController = navController,
-            startDestination = Screen.Home.route
-        )
+        Box(modifier = Modifier.fillMaxSize()) {
+            TacticalBackground(modifier = Modifier.matchParentSize())
+            NavGraph(
+                navController = navController,
+                mapVm = mapVm,
+                startDestination = Screen.Login.route
+            )
+        }
     }
 }
 
 @Composable
-fun SquadLinkBottomNav(navController: NavController, currentRoute: String?) {
+fun SquadLinkBottomNav(
+    navController: NavController,
+    currentRoute: String?,
+    items: List<BottomNavItem>
+) {
     NavigationBar {
-        bottomNavItems.forEach { item ->
+        items.forEach { item ->
             NavigationBarItem(
                 selected = currentRoute == item.route,
                 onClick = {

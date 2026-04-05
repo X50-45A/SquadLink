@@ -90,4 +90,8 @@ class UserPreferencesRepository(private val context: Context) {
     suspend fun setActiveUserName(name: String) {
         context.dataStore.edit { it[KEY_ACTIVE_USER] = name }
     }
+
+    suspend fun clearActiveUserName() {
+        context.dataStore.edit { it.remove(KEY_ACTIVE_USER) }
+    }
 }

@@ -10,8 +10,10 @@ import com.example.squadlink.data.UserPreferencesRepository
 import com.example.squadlink.ui.screens.GameMasterScreen
 import com.example.squadlink.ui.screens.HomeScreen
 import com.example.squadlink.ui.screens.JoinGameScreen
+import com.example.squadlink.ui.screens.LoginScreen
 import com.example.squadlink.ui.map.MapScreen
 import com.example.squadlink.ui.map.FieldSelectionViewModel
+import com.example.squadlink.ui.map.MapViewModel
 import com.example.squadlink.ui.session.GameSessionViewModel
 import com.example.squadlink.ui.screens.ProfileScreen
 import com.example.squadlink.ui.screens.SquadScreen
@@ -22,12 +24,28 @@ import com.example.squadlink.ui.profile.ProfileViewModel
 @Composable
 fun NavGraph(
     navController: NavHostController,
-    startDestination: String = Screen.Home.route
+    mapVm: MapViewModel,
+    startDestination: String = Screen.Login.route
 ) {
     NavHost(
         navController = navController,
         startDestination = startDestination
     ) {
+        composable(Screen.Login.route) {
+            val context = LocalContext.current
+            val vm: ProfileViewModel = viewModel(
+                factory = ProfileViewModel.Factory(UserPreferencesRepository(context))
+            )
+            LoginScreen(
+                vm = vm,
+                onLoggedIn = {
+                    navController.navigate(Screen.Home.route) {
+                        popUpTo(Screen.Login.route) { inclusive = true }
+                    }
+                }
+            )
+        }
+
         composable(Screen.Home.route) {
             val context = LocalContext.current
             val sessionVm: GameSessionViewModel = viewModel(
@@ -68,11 +86,15 @@ fun NavGraph(
             val sessionVm: GameSessionViewModel = viewModel(
                 factory = GameSessionViewModel.Factory(UserPreferencesRepository(context))
             )
-            MapScreen(fieldVm = fieldVm, sessionVm = sessionVm)
+            MapScreen(fieldVm = fieldVm, sessionVm = sessionVm, mapVm = mapVm)
         }
 
         composable(Screen.Squad.route) {
-            SquadScreen()
+            val context = LocalContext.current
+            val sessionVm: GameSessionViewModel = viewModel(
+                factory = GameSessionViewModel.Factory(UserPreferencesRepository(context))
+            )
+            SquadScreen(sessionVm = sessionVm)
         }
 
         composable(Screen.Profile.route) {
@@ -80,7 +102,14 @@ fun NavGraph(
             val vm: ProfileViewModel = viewModel(
                 factory = ProfileViewModel.Factory(UserPreferencesRepository(context))
             )
-            ProfileScreen(vm = vm)
+            ProfileScreen(
+                vm = vm,
+                onLogout = {
+                    navController.navigate(Screen.Login.route) {
+                        popUpTo(Screen.Login.route) { inclusive = true }
+                    }
+                }
+            )
         }
 
         composable(Screen.Settings.route) {
@@ -105,7 +134,9 @@ fun NavGraph(
             GameMasterScreen(
                 fieldVm = fieldVm,
                 sessionVm = sessionVm,
-                onBack = { navController.popBackStack() }
+                mapVm = mapVm,
+                onBack = { navController.popBackStack() },
+                onOpenMap = { navController.navigate(Screen.Map.route) }
             )
         }
     }

@@ -12,6 +12,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.squadlink.ui.map.FieldSelectionViewModel
+import com.example.squadlink.ui.map.MapViewModel
+import com.example.squadlink.ui.map.MarkerType
 import com.example.squadlink.ui.session.GameSessionViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -19,7 +21,9 @@ import com.example.squadlink.ui.session.GameSessionViewModel
 fun GameMasterScreen(
     fieldVm: FieldSelectionViewModel,
     sessionVm: GameSessionViewModel,
-    onBack: () -> Unit
+    mapVm: MapViewModel,
+    onBack: () -> Unit,
+    onOpenMap: () -> Unit
 ) {
     val sessionState by sessionVm.uiState.collectAsState()
     val fieldState by fieldVm.uiState.collectAsState()
@@ -143,23 +147,55 @@ fun GameMasterScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                AssistChip(
-                                    onClick = {},
-                                    label = { Text("Bandera A") },
-                                    leadingIcon = {
-                                        Icon(Icons.Default.LocationOn, null,
-                                            modifier = Modifier.size(16.dp))
-                                    }
-                                )
-                                AssistChip(
-                                    onClick = {},
-                                    label = { Text("Zona segura") },
-                                    leadingIcon = {
-                                        Icon(Icons.Default.LocationOn, null,
-                                            modifier = Modifier.size(16.dp))
-                                    }
-                                )
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    AssistChip(
+                                        onClick = {
+                                            mapVm.setMarkerMode(MarkerType.OBJECTIVE)
+                                            onOpenMap()
+                                        },
+                                        label = { Text("Bandera") },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.LocationOn, null,
+                                                modifier = Modifier.size(16.dp))
+                                        }
+                                    )
+                                    AssistChip(
+                                        onClick = {
+                                            mapVm.setMarkerMode(MarkerType.SAFE_ZONE)
+                                            onOpenMap()
+                                        },
+                                        label = { Text("Zona segura") },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.LocationOn, null,
+                                                modifier = Modifier.size(16.dp))
+                                        }
+                                    )
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    AssistChip(
+                                        onClick = {
+                                            mapVm.setMarkerMode(MarkerType.DANGER)
+                                            onOpenMap()
+                                        },
+                                        label = { Text("Peligro") },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.LocationOn, null,
+                                                modifier = Modifier.size(16.dp))
+                                        }
+                                    )
+                                    AssistChip(
+                                        onClick = {
+                                            mapVm.setMarkerMode(MarkerType.CUSTOM)
+                                            onOpenMap()
+                                        },
+                                        label = { Text("Personal") },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.LocationOn, null,
+                                                modifier = Modifier.size(16.dp))
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
