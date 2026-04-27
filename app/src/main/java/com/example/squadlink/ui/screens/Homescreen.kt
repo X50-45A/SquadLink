@@ -51,6 +51,19 @@ fun HomeScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
+        if (sessionState.activeUserName.isNotBlank()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "Sesion activa: ${sessionState.activeUserName}",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                text = if (sessionState.isGameMaster) "Perfil Game Master" else "Perfil Jugador",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
         Spacer(modifier = Modifier.height(48.dp))
 
         if (sessionState.isGameMaster) {

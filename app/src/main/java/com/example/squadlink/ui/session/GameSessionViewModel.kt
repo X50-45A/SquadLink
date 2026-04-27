@@ -12,7 +12,9 @@ import kotlinx.coroutines.launch
 
 data class GameSessionUiState(
     val activeGameCode: String = "",
-    val isGameMaster: Boolean = false
+    val isGameMaster: Boolean = false,
+    val activeUserName: String = "",
+    val suggestedPlayerName: String = ""
 )
 
 class GameSessionViewModel(
@@ -21,18 +23,26 @@ class GameSessionViewModel(
 
     val uiState: StateFlow<GameSessionUiState> = combine(
         repo.activeGameCode,
-        repo.isGameMaster
-    ) { code, gm ->
-        GameSessionUiState(code, gm)
+        repo.isGameMaster,
+        repo.activeUserName,
+        repo.playerName
+    ) { code, gm, activeUser, playerName ->
+        GameSessionUiState(
+            activeGameCode = code,
+            isGameMaster = gm,
+            activeUserName = activeUser,
+            suggestedPlayerName = playerName.ifBlank { activeUser }
+        )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = GameSessionUiState()
     )
 
-    fun joinGame(code: String) {
+    fun joinGame(code: String, playerName: String) {
         viewModelScope.launch {
             repo.setActiveGameCode(code)
+            repo.setPlayerName(playerName.trim())
             repo.setIsGameMaster(false)
         }
     }

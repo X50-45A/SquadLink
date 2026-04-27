@@ -25,6 +25,7 @@ class UserPreferencesRepository(private val context: Context) {
         val KEY_ACTIVE_GAME    = stringPreferencesKey("active_game_code")
         val KEY_IS_GM          = booleanPreferencesKey("is_game_master")
         val KEY_ACTIVE_USER    = stringPreferencesKey("active_user_name")
+        val KEY_ACTIVE_EMAIL   = stringPreferencesKey("active_user_email")
     }
 
     val darkTheme: Flow<Boolean> = context.dataStore.data
@@ -50,6 +51,9 @@ class UserPreferencesRepository(private val context: Context) {
 
     val activeUserName: Flow<String> = context.dataStore.data
         .map { prefs -> prefs[KEY_ACTIVE_USER] ?: "" }
+
+    val activeUserEmail: Flow<String> = context.dataStore.data
+        .map { prefs -> prefs[KEY_ACTIVE_EMAIL] ?: "" }
 
     suspend fun setDarkTheme(enabled: Boolean) {
         context.dataStore.edit { it[KEY_DARK_THEME] = enabled }
@@ -93,5 +97,20 @@ class UserPreferencesRepository(private val context: Context) {
 
     suspend fun clearActiveUserName() {
         context.dataStore.edit { it.remove(KEY_ACTIVE_USER) }
+    }
+
+    suspend fun setActiveUserEmail(email: String) {
+        context.dataStore.edit { it[KEY_ACTIVE_EMAIL] = email }
+    }
+
+    suspend fun clearSession() {
+        context.dataStore.edit {
+            it.remove(KEY_PLAYER_NAME)
+            it.remove(KEY_FIELD_ID)
+            it.remove(KEY_ACTIVE_GAME)
+            it.remove(KEY_IS_GM)
+            it.remove(KEY_ACTIVE_USER)
+            it.remove(KEY_ACTIVE_EMAIL)
+        }
     }
 }

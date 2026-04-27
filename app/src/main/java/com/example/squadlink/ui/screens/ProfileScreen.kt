@@ -1,15 +1,25 @@
 package com.example.squadlink.ui.screens
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.example.squadlink.ui.profile.AccountRole
-import com.example.squadlink.ui.profile.DemoAccount
 import com.example.squadlink.ui.profile.ProfileViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -19,12 +29,12 @@ fun ProfileScreen(
     onLogout: () -> Unit
 ) {
     val state by vm.uiState.collectAsState()
-    val accounts = listOf(
-        DemoAccount("Alpha-1", AccountRole.PLAYER),
-        DemoAccount("Alpha-2", AccountRole.PLAYER),
-        DemoAccount("Bravo-1", AccountRole.PLAYER),
-        DemoAccount("GM-1", AccountRole.GAME_MASTER)
-    )
+
+    LaunchedEffect(state.activeUser, state.isSessionResolved) {
+        if (state.isSessionResolved && state.activeUser.isBlank()) {
+            onLogout()
+        }
+    }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Perfil") }) }
@@ -42,41 +52,28 @@ fun ProfileScreen(
                 style = MaterialTheme.typography.headlineSmall
             )
             Text(
+                if (state.activeEmail.isBlank()) "Sin correo sincronizado" else state.activeEmail,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
                 if (state.isGameMaster) "Rol: Game Master" else "Rol: Jugador",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Divider()
+            HorizontalDivider()
 
-            Text("Cambiar cuenta", style = MaterialTheme.typography.titleMedium)
-            accounts.forEach { account ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RadioButton(
-                        selected = state.activeUser == account.name,
-                        onClick = { vm.selectAccount(account) }
-                    )
-                    Column {
-                        Text(account.name)
-                        Text(
-                            if (account.role == AccountRole.GAME_MASTER) "Game Master" else "Jugador",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
+            Text(
+                "Las cuentas ahora viven en Firebase. Si quieres probar ambos roles, cierra sesion y crea otra cuenta desde la pantalla de acceso.",
+                style = MaterialTheme.typography.bodyMedium
+            )
 
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedButton(
-                onClick = {
-                    vm.logout()
-                    onLogout()
-                },
-                modifier = Modifier.fillMaxWidth()
+                onClick = { vm.logout() },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !state.isBusy
             ) {
                 Text("Cerrar sesion")
             }
