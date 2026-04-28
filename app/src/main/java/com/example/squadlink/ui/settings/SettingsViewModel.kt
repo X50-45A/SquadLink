@@ -11,10 +11,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class SettingsUiState(
-    val darkTheme: Boolean     = false,
-    val playerName: String     = "",
-    val showGrid: Boolean      = true,
-    val keepScreenOn: Boolean  = true
+    val darkTheme: Boolean = false,
+    val showGrid: Boolean = true,
+    val keepScreenOn: Boolean = true
 )
 
 class SettingsViewModel(
@@ -23,11 +22,10 @@ class SettingsViewModel(
 
     val uiState: StateFlow<SettingsUiState> = combine(
         repo.darkTheme,
-        repo.playerName,
         repo.showGrid,
         repo.keepScreenOn
-    ) { darkTheme, playerName, showGrid, keepScreenOn ->
-        SettingsUiState(darkTheme, playerName, showGrid, keepScreenOn)
+    ) { darkTheme, showGrid, keepScreenOn ->
+        SettingsUiState(darkTheme, showGrid, keepScreenOn)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -36,9 +34,6 @@ class SettingsViewModel(
 
     fun setDarkTheme(enabled: Boolean) =
         viewModelScope.launch { repo.setDarkTheme(enabled) }
-
-    fun setPlayerName(name: String) =
-        viewModelScope.launch { repo.setPlayerName(name) }
 
     fun setShowGrid(enabled: Boolean) =
         viewModelScope.launch { repo.setShowGrid(enabled) }

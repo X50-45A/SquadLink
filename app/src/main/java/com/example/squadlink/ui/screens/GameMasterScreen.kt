@@ -3,7 +3,7 @@ package com.example.squadlink.ui.screens
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
@@ -37,7 +37,7 @@ fun GameMasterScreen(
                 title = { Text("Panel Game Master") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Volver")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
                     }
                 }
             )
@@ -204,18 +204,12 @@ fun GameMasterScreen(
                 item {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Equipos", style = MaterialTheme.typography.titleMedium)
+                            Text("Escuadrones", style = MaterialTheme.typography.titleMedium)
                             Spacer(modifier = Modifier.height(8.dp))
-                            Text("Alpha", style = MaterialTheme.typography.labelLarge)
                             Text(
-                                "Alpha-1, Alpha-2, Alpha-3",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("Bravo", style = MaterialTheme.typography.labelLarge)
-                            Text(
-                                "Bravo-1, Bravo-2",
-                                style = MaterialTheme.typography.bodySmall
+                                "La gestion real de miembros y escuadrones ya se hace desde la pestaña Escuadron, sincronizada con Firestore.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }

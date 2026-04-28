@@ -6,12 +6,15 @@ import androidx.lifecycle.viewModelScope
 import com.example.squadlink.data.FirebaseAccountRepository
 import com.example.squadlink.data.UserPreferencesRepository
 import com.example.squadlink.model.AccountRole
+import com.example.squadlink.model.SquadRole
+import com.example.squadlink.model.UserAccountProfile
 import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.auth.FirebaseAuthWeakPasswordException
 import com.google.firebase.firestore.FirebaseFirestoreException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +27,10 @@ data class ProfileUiState(
     val activeUser: String = "",
     val activeEmail: String = "",
     val isGameMaster: Boolean = false,
+    val callsign: String = "",
+    val squadName: String = "",
+    val squadCode: String = "",
+    val squadRole: SquadRole = SquadRole.RIFLEMAN,
     val isBusy: Boolean = false,
     val isSessionResolved: Boolean = false,
     val errorMessage: String? = null
@@ -35,17 +42,24 @@ class ProfileViewModel(
 ) : ViewModel() {
 
     private val viewState = MutableStateFlow(ProfileUiState())
+    private val remoteProfile = MutableStateFlow<UserAccountProfile?>(null)
+    private var profileObservationJob: Job? = null
 
     val uiState: StateFlow<ProfileUiState> = combine(
         repo.activeUserName,
         repo.activeUserEmail,
         repo.isGameMaster,
+        remoteProfile,
         viewState
-    ) { name, email, gm, state ->
+    ) { name, email, gm, profile, state ->
         state.copy(
             activeUser = name,
             activeEmail = email,
-            isGameMaster = gm
+            isGameMaster = gm,
+            callsign = profile?.callsign.orEmpty(),
+            squadName = profile?.squadName.orEmpty(),
+            squadCode = profile?.squadCode.orEmpty(),
+            squadRole = profile?.squadRole ?: SquadRole.RIFLEMAN
         )
     }.stateIn(
         scope = viewModelScope,
@@ -62,8 +76,10 @@ class ProfileViewModel(
             viewState.update { it.copy(isBusy = true, errorMessage = null) }
             try {
                 accountRepository.restoreSession()
+                startProfileObservation()
             } catch (error: Throwable) {
                 repo.clearSession()
+                remoteProfile.value = null
                 viewState.update { it.copy(errorMessage = error.toFriendlyMessage()) }
             }
             viewState.update { it.copy(isBusy = false, isSessionResolved = true) }
@@ -75,6 +91,7 @@ class ProfileViewModel(
             viewState.update { it.copy(isBusy = true, errorMessage = null) }
             try {
                 accountRepository.signIn(email = email, password = password)
+                startProfileObservation()
             } catch (error: Throwable) {
                 viewState.update { it.copy(errorMessage = error.toFriendlyMessage()) }
             }
@@ -97,10 +114,31 @@ class ProfileViewModel(
                     password = password,
                     role = role
                 )
+                startProfileObservation()
             } catch (error: Throwable) {
                 viewState.update { it.copy(errorMessage = error.toFriendlyMessage()) }
             }
             viewState.update { it.copy(isBusy = false, isSessionResolved = true) }
+        }
+    }
+
+    fun updateProfile(
+        displayName: String,
+        callsign: String,
+        squadRole: SquadRole
+    ) {
+        viewModelScope.launch {
+            viewState.update { it.copy(isBusy = true, errorMessage = null) }
+            try {
+                accountRepository.updateCurrentProfile(
+                    displayName = displayName,
+                    callsign = callsign,
+                    squadRole = squadRole
+                )
+            } catch (error: Throwable) {
+                viewState.update { it.copy(errorMessage = error.toFriendlyMessage()) }
+            }
+            viewState.update { it.copy(isBusy = false) }
         }
     }
 
@@ -109,6 +147,8 @@ class ProfileViewModel(
             viewState.update { it.copy(isBusy = true, errorMessage = null) }
             try {
                 accountRepository.signOut()
+                profileObservationJob?.cancel()
+                remoteProfile.value = null
             } catch (error: Throwable) {
                 viewState.update { it.copy(errorMessage = error.toFriendlyMessage()) }
             }
@@ -118,6 +158,15 @@ class ProfileViewModel(
 
     fun clearError() {
         viewState.update { it.copy(errorMessage = null) }
+    }
+
+    private fun startProfileObservation() {
+        profileObservationJob?.cancel()
+        profileObservationJob = viewModelScope.launch {
+            accountRepository.observeCurrentProfile().collect { profile ->
+                remoteProfile.value = profile
+            }
+        }
     }
 
     class Factory(private val repo: UserPreferencesRepository) : ViewModelProvider.Factory {
@@ -132,6 +181,7 @@ class ProfileViewModel(
 
 private fun Throwable.toFriendlyMessage(): String {
     return when (this) {
+        is IllegalArgumentException -> message ?: "Revisa los datos del formulario."
         is FirebaseAuthWeakPasswordException ->
             "La contrasena es demasiado debil. Usa al menos 6 caracteres."
         is FirebaseAuthUserCollisionException ->
@@ -142,7 +192,7 @@ private fun Throwable.toFriendlyMessage(): String {
         is FirebaseNetworkException ->
             "No se pudo conectar con Firebase. Revisa la red del dispositivo."
         is FirebaseFirestoreException ->
-            "La sesion se abrio, pero no se pudo cargar el perfil en Firestore."
+            "No se pudo sincronizar el perfil con Firestore."
         else -> message ?: "Ha ocurrido un error autenticando la cuenta."
     }
 }

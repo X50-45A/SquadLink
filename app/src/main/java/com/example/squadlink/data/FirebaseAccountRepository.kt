@@ -1,12 +1,21 @@
 package com.example.squadlink.data
 
 import com.example.squadlink.model.AccountRole
+import com.example.squadlink.model.SquadMemberProfile
+import com.example.squadlink.model.SquadRole
+import com.example.squadlink.model.SquadSummary
 import com.example.squadlink.model.UserAccountProfile
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
+import kotlin.random.Random
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 
 class FirebaseAccountRepository(
     private val preferencesRepository: UserPreferencesRepository,
@@ -16,11 +25,20 @@ class FirebaseAccountRepository(
 
     companion object {
         private const val USERS_COLLECTION = "users"
+        private const val SQUADS_COLLECTION = "squads"
+
         private const val FIELD_DISPLAY_NAME = "displayName"
         private const val FIELD_EMAIL = "email"
         private const val FIELD_ROLE = "role"
+        private const val FIELD_CALLSIGN = "callsign"
+        private const val FIELD_SQUAD_ID = "squadId"
+        private const val FIELD_SQUAD_NAME = "squadName"
+        private const val FIELD_SQUAD_CODE = "squadCode"
+        private const val FIELD_SQUAD_ROLE = "squadRole"
         private const val FIELD_CREATED_AT = "createdAt"
         private const val FIELD_UPDATED_AT = "updatedAt"
+        private const val FIELD_JOIN_CODE = "joinCode"
+        private const val FIELD_CREATED_BY = "createdBy"
     }
 
     suspend fun restoreSession(): UserAccountProfile? {
@@ -60,11 +78,196 @@ class FirebaseAccountRepository(
             uid = firebaseUser.uid,
             displayName = normalizedName,
             email = normalizedEmail,
-            role = role
+            role = role,
+            callsign = normalizedName,
+            squadRole = SquadRole.RIFLEMAN
         )
         saveProfile(profile, isNewUser = true)
         syncLocalProfile(profile, resetGameCode = true)
         return profile
+    }
+
+    fun observeCurrentProfile(): Flow<UserAccountProfile?> = callbackFlow {
+        val currentUser = auth.currentUser
+        if (currentUser == null) {
+            trySend(null)
+            close()
+            return@callbackFlow
+        }
+
+        val registration = firestore
+            .collection(USERS_COLLECTION)
+            .document(currentUser.uid)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+
+                val profile = snapshot
+                    ?.takeIf { it.exists() }
+                    ?.toUserAccountProfile(currentUser)
+                    ?: fallbackProfile(currentUser)
+
+                trySend(profile)
+            }
+
+        awaitClose { registration.remove() }
+    }
+
+    fun observeSquadMembers(squadId: String): Flow<List<SquadMemberProfile>> = callbackFlow {
+        val registration = firestore
+            .collection(USERS_COLLECTION)
+            .whereEqualTo(FIELD_SQUAD_ID, squadId)
+            .orderBy(FIELD_CALLSIGN, Query.Direction.ASCENDING)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+
+                val members = snapshot?.documents
+                    ?.mapNotNull { document ->
+                        val uid = document.id
+                        val displayName = document.getString(FIELD_DISPLAY_NAME)?.trim().orEmpty()
+                        val email = document.getString(FIELD_EMAIL)?.trim().orEmpty()
+                        if (displayName.isBlank() && email.isBlank()) {
+                            null
+                        } else {
+                            SquadMemberProfile(
+                                uid = uid,
+                                displayName = displayName.ifBlank { email.substringBefore("@") },
+                                callsign = document.getString(FIELD_CALLSIGN)
+                                    ?.trim()
+                                    .orEmpty()
+                                    .ifBlank {
+                                        document.getString(FIELD_DISPLAY_NAME)
+                                            ?.trim()
+                                            .orEmpty()
+                                    },
+                                squadRole = SquadRole.fromWireValue(
+                                    document.getString(FIELD_SQUAD_ROLE)
+                                ),
+                                accountRole = AccountRole.fromWireValue(
+                                    document.getString(FIELD_ROLE)
+                                )
+                            )
+                        }
+                    }
+                    .orEmpty()
+                    .sortedWith(
+                        compareBy<SquadMemberProfile> { it.callsign.lowercase() }
+                            .thenBy { it.displayName.lowercase() }
+                    )
+
+                trySend(members)
+            }
+
+        awaitClose { registration.remove() }
+    }
+
+    suspend fun updateCurrentProfile(
+        displayName: String,
+        callsign: String,
+        squadRole: SquadRole
+    ): UserAccountProfile {
+        val currentUser = requireCurrentUser()
+        val currentProfile = fetchOrCreateProfile(currentUser)
+        val updatedProfile = currentProfile.copy(
+            displayName = displayName.trim(),
+            callsign = callsign.trim(),
+            squadRole = squadRole
+        )
+        saveProfile(updatedProfile, isNewUser = false)
+        syncLocalProfile(updatedProfile, resetGameCode = false)
+        return updatedProfile
+    }
+
+    suspend fun createSquad(name: String): SquadSummary {
+        val currentUser = requireCurrentUser()
+        val currentProfile = fetchOrCreateProfile(currentUser)
+        if (currentProfile.squadId.isNotBlank()) {
+            error("Ya formas parte de un escuadron.")
+        }
+
+        val normalizedName = name.trim()
+        require(normalizedName.isNotBlank()) { "El nombre del escuadron no puede estar vacio." }
+
+        val squadRef = firestore.collection(SQUADS_COLLECTION).document()
+        val squad = SquadSummary(
+            id = squadRef.id,
+            name = normalizedName,
+            joinCode = generateUniqueJoinCode(),
+            createdBy = currentUser.uid
+        )
+
+        squadRef.set(
+            mapOf(
+                FIELD_DISPLAY_NAME to squad.name,
+                FIELD_JOIN_CODE to squad.joinCode,
+                FIELD_CREATED_BY to squad.createdBy,
+                FIELD_CREATED_AT to FieldValue.serverTimestamp(),
+                FIELD_UPDATED_AT to FieldValue.serverTimestamp()
+            )
+        ).awaitResult()
+
+        val updatedProfile = currentProfile.copy(
+            squadId = squad.id,
+            squadName = squad.name,
+            squadCode = squad.joinCode
+        )
+        saveProfile(updatedProfile, isNewUser = false)
+        syncLocalProfile(updatedProfile, resetGameCode = false)
+        return squad
+    }
+
+    suspend fun joinSquad(joinCode: String): SquadSummary {
+        val currentUser = requireCurrentUser()
+        val currentProfile = fetchOrCreateProfile(currentUser)
+        val normalizedCode = joinCode.trim().uppercase()
+        require(normalizedCode.isNotBlank()) { "Introduce un codigo de escuadron valido." }
+
+        val snapshot = firestore
+            .collection(SQUADS_COLLECTION)
+            .whereEqualTo(FIELD_JOIN_CODE, normalizedCode)
+            .limit(1)
+            .get()
+            .awaitResult()
+
+        val squadDocument = snapshot.documents.firstOrNull()
+            ?: error("No existe ningun escuadron con ese codigo.")
+
+        val squad = SquadSummary(
+            id = squadDocument.id,
+            name = squadDocument.getString(FIELD_DISPLAY_NAME).orEmpty(),
+            joinCode = squadDocument.getString(FIELD_JOIN_CODE).orEmpty(),
+            createdBy = squadDocument.getString(FIELD_CREATED_BY).orEmpty()
+        )
+
+        val updatedProfile = currentProfile.copy(
+            squadId = squad.id,
+            squadName = squad.name,
+            squadCode = squad.joinCode
+        )
+        saveProfile(updatedProfile, isNewUser = false)
+        syncLocalProfile(updatedProfile, resetGameCode = false)
+        return squad
+    }
+
+    suspend fun leaveSquad() {
+        val currentUser = requireCurrentUser()
+        val currentProfile = fetchOrCreateProfile(currentUser)
+        if (currentProfile.squadId.isBlank()) {
+            return
+        }
+
+        val updatedProfile = currentProfile.copy(
+            squadId = "",
+            squadName = "",
+            squadCode = ""
+        )
+        saveProfile(updatedProfile, isNewUser = false)
+        syncLocalProfile(updatedProfile, resetGameCode = false)
     }
 
     suspend fun signOut() {
@@ -80,23 +283,9 @@ class FirebaseAccountRepository(
             .awaitResult()
 
         val profile = if (snapshot.exists()) {
-            UserAccountProfile(
-                uid = firebaseUser.uid,
-                displayName = snapshot.getString(FIELD_DISPLAY_NAME)
-                    ?.takeIf { it.isNotBlank() }
-                    ?: fallbackDisplayName(firebaseUser),
-                email = snapshot.getString(FIELD_EMAIL)
-                    ?.takeIf { it.isNotBlank() }
-                    ?: (firebaseUser.email ?: ""),
-                role = AccountRole.fromWireValue(snapshot.getString(FIELD_ROLE))
-            )
+            snapshot.toUserAccountProfile(firebaseUser)
         } else {
-            UserAccountProfile(
-                uid = firebaseUser.uid,
-                displayName = fallbackDisplayName(firebaseUser),
-                email = firebaseUser.email ?: "",
-                role = AccountRole.PLAYER
-            )
+            fallbackProfile(firebaseUser)
         }
 
         saveProfile(profile, isNewUser = !snapshot.exists())
@@ -111,6 +300,11 @@ class FirebaseAccountRepository(
             FIELD_DISPLAY_NAME to profile.displayName,
             FIELD_EMAIL to profile.email,
             FIELD_ROLE to profile.role.wireValue,
+            FIELD_CALLSIGN to profile.callsign.ifBlank { profile.displayName },
+            FIELD_SQUAD_ID to profile.squadId,
+            FIELD_SQUAD_NAME to profile.squadName,
+            FIELD_SQUAD_CODE to profile.squadCode,
+            FIELD_SQUAD_ROLE to profile.squadRole.wireValue,
             FIELD_UPDATED_AT to FieldValue.serverTimestamp()
         )
         if (isNewUser) {
@@ -130,17 +324,82 @@ class FirebaseAccountRepository(
     ) {
         preferencesRepository.setActiveUserName(profile.displayName)
         preferencesRepository.setActiveUserEmail(profile.email)
-        preferencesRepository.setPlayerName(profile.displayName)
+        preferencesRepository.setPlayerName(profile.callsign.ifBlank { profile.displayName })
         preferencesRepository.setIsGameMaster(profile.role == AccountRole.GAME_MASTER)
-        if (resetGameCode) {
+        if (resetGameCode || profile.squadId.isBlank()) {
             preferencesRepository.clearActiveGameCode()
         }
     }
 
-    private fun fallbackDisplayName(firebaseUser: FirebaseUser): String {
-        return firebaseUser.displayName
+    private fun fallbackProfile(firebaseUser: FirebaseUser): UserAccountProfile {
+        val fallbackName = firebaseUser.displayName
             ?.takeIf { it.isNotBlank() }
             ?: firebaseUser.email?.substringBefore("@")
             ?: "Operador"
+
+        return UserAccountProfile(
+            uid = firebaseUser.uid,
+            displayName = fallbackName,
+            email = firebaseUser.email ?: "",
+            role = AccountRole.PLAYER,
+            callsign = fallbackName,
+            squadRole = SquadRole.RIFLEMAN
+        )
+    }
+
+    private suspend fun generateUniqueJoinCode(): String {
+        repeat(10) {
+            val candidate = buildString {
+                val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+                repeat(6) {
+                    append(alphabet[Random.nextInt(alphabet.length)])
+                }
+            }
+
+            val snapshot = firestore
+                .collection(SQUADS_COLLECTION)
+                .whereEqualTo(FIELD_JOIN_CODE, candidate)
+                .limit(1)
+                .get()
+                .awaitResult()
+
+            if (snapshot.isEmpty) {
+                return candidate
+            }
+        }
+
+        error("No se pudo generar un codigo de escuadron unico. Intentalo de nuevo.")
+    }
+
+    private fun requireCurrentUser(): FirebaseUser {
+        return auth.currentUser ?: error("Necesitas iniciar sesion para realizar esta accion.")
+    }
+
+    private fun DocumentSnapshot.toUserAccountProfile(firebaseUser: FirebaseUser): UserAccountProfile {
+        val fallbackName = firebaseUser.displayName
+            ?.takeIf { it.isNotBlank() }
+            ?: firebaseUser.email?.substringBefore("@")
+            ?: "Operador"
+
+        return UserAccountProfile(
+            uid = firebaseUser.uid,
+            displayName = getString(FIELD_DISPLAY_NAME)
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?: fallbackName,
+            email = getString(FIELD_EMAIL)
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?: (firebaseUser.email ?: ""),
+            role = AccountRole.fromWireValue(getString(FIELD_ROLE)),
+            callsign = getString(FIELD_CALLSIGN)
+                ?.trim()
+                .orEmpty()
+                .ifBlank { getString(FIELD_DISPLAY_NAME)?.trim().orEmpty().ifBlank { fallbackName } },
+            squadId = getString(FIELD_SQUAD_ID)?.trim().orEmpty(),
+            squadName = getString(FIELD_SQUAD_NAME)?.trim().orEmpty(),
+            squadCode = getString(FIELD_SQUAD_CODE)?.trim().orEmpty(),
+            squadRole = SquadRole.fromWireValue(getString(FIELD_SQUAD_ROLE))
+        )
     }
 }

@@ -17,6 +17,7 @@ import com.example.squadlink.ui.map.MapViewModel
 import com.example.squadlink.ui.session.GameSessionViewModel
 import com.example.squadlink.ui.screens.ProfileScreen
 import com.example.squadlink.ui.screens.SquadScreen
+import com.example.squadlink.ui.squad.SquadViewModel
 import com.example.squadlink.ui.settings.SettingsScreen
 import com.example.squadlink.ui.settings.SettingsViewModel
 import com.example.squadlink.ui.profile.ProfileViewModel
@@ -91,10 +92,10 @@ fun NavGraph(
 
         composable(Screen.Squad.route) {
             val context = LocalContext.current
-            val sessionVm: GameSessionViewModel = viewModel(
-                factory = GameSessionViewModel.Factory(UserPreferencesRepository(context))
+            val squadVm: SquadViewModel = viewModel(
+                factory = SquadViewModel.Factory(UserPreferencesRepository(context))
             )
-            SquadScreen(sessionVm = sessionVm)
+            SquadScreen(vm = squadVm)
         }
 
         composable(Screen.Profile.route) {

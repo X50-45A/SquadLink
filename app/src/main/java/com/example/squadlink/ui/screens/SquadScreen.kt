@@ -1,149 +1,214 @@
 package com.example.squadlink.ui.screens
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material3.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.example.squadlink.ui.session.GameSessionViewModel
-
-// Placeholder data model - will be replaced by Firebase data
-data class SquadMember(
-    val id: String,
-    val name: String,
-    val role: String,
-    val isOnline: Boolean
-)
-
-private val mockMembers = listOf(
-    SquadMember("1", "Alpha-1", "Team Leader", true),
-    SquadMember("2", "Alpha-2", "Rifleman", true),
-    SquadMember("3", "Alpha-3", "Medic", false),
-    SquadMember("4", "Alpha-4", "Support", true)
-)
-
-private val mockTeams = listOf(
-    "Alpha" to listOf("Alpha-1", "Alpha-2", "Alpha-3"),
-    "Bravo" to listOf("Bravo-1", "Bravo-2")
-)
+import com.example.squadlink.model.AccountRole
+import com.example.squadlink.model.SquadMemberProfile
+import com.example.squadlink.ui.squad.SquadViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SquadScreen(sessionVm: GameSessionViewModel) {
-    val sessionState by sessionVm.uiState.collectAsState()
+fun SquadScreen(vm: SquadViewModel) {
+    val state by vm.uiState.collectAsState()
+    var squadNameInput by rememberSaveable { mutableStateOf("") }
+    var joinCodeInput by rememberSaveable { mutableStateOf("") }
+    val title = if (state.currentAccountRole == AccountRole.GAME_MASTER) {
+        "Jugadores"
+    } else {
+        "Escuadron"
+    }
+
     Scaffold(
-        topBar = {
-            TopAppBar(title = { Text(if (sessionState.isGameMaster) "Jugadores" else "Escuadron") })
-        }
+        topBar = { TopAppBar(title = { Text(title) }) }
     ) { padding ->
-        if (sessionState.isGameMaster) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(vertical = 16.dp)
-            ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(vertical = 16.dp)
+        ) {
+            if (state.errorMessage != null) {
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                            containerColor = MaterialTheme.colorScheme.errorContainer
                         )
                     ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                "Equipos en la partida",
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                "${mockTeams.sumOf { it.second.size }} jugadores conectados",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                            )
-                        }
+                        Text(
+                            text = state.errorMessage ?: "",
+                            modifier = Modifier.padding(16.dp),
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-
-                items(mockTeams) { team ->
-                    TeamCard(team.first, team.second)
                 }
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(vertical = 16.dp)
-            ) {
+
+            if (!state.hasSquad) {
                 item {
-                    // Squad summary card
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text("Crear escuadron", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "Crea un escuadron nuevo y comparte el codigo con el resto del equipo.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            OutlinedTextField(
+                                value = squadNameInput,
+                                onValueChange = {
+                                    squadNameInput = it
+                                    vm.clearError()
+                                },
+                                label = { Text("Nombre del escuadron") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                            Button(
+                                onClick = {
+                                    vm.createSquad(squadNameInput)
+                                    squadNameInput = ""
+                                },
+                                enabled = !state.isBusy && squadNameInput.isNotBlank(),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Crear")
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text("Unirse a escuadron", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "Si ya existe, introduce su codigo para entrar con tu perfil actual.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            OutlinedTextField(
+                                value = joinCodeInput,
+                                onValueChange = {
+                                    joinCodeInput = it.uppercase()
+                                    vm.clearError()
+                                },
+                                label = { Text("Codigo de union") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                            OutlinedButton(
+                                onClick = {
+                                    vm.joinSquad(joinCodeInput)
+                                    joinCodeInput = ""
+                                },
+                                enabled = !state.isBusy && joinCodeInput.isNotBlank(),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Unirse")
+                            }
+                        }
+                    }
+                }
+            } else {
+                item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.primaryContainer
                         )
                     ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(state.squadName, style = MaterialTheme.typography.headlineSmall)
                             Text(
-                                "Escuadron Alpha",
-                                style = MaterialTheme.typography.titleMedium
+                                "Codigo de union: ${state.squadCode}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                             )
                             Text(
-                                "${mockMembers.count { it.isOnline }}/${mockMembers.size} miembros conectados",
+                                "${state.members.size} miembro(s) sincronizados",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                             )
                         }
                     }
+                }
 
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        "Miembros",
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.padding(vertical = 4.dp)
+                item {
+                    OutlinedButton(
+                        onClick = { vm.leaveSquad() },
+                        enabled = !state.isBusy,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Salir del escuadron")
+                    }
+                }
+
+                item {
+                    Text("Miembros", style = MaterialTheme.typography.titleMedium)
+                }
+
+                items(state.members, key = { it.uid }) { member ->
+                    MemberCard(
+                        member = member,
+                        isCurrentUser = member.uid == state.currentUserId
                     )
                 }
-
-                items(mockMembers) { member ->
-                    MemberCard(member = member)
-                }
             }
         }
     }
 }
 
 @Composable
-private fun TeamCard(name: String, players: List<String>) {
+private fun MemberCard(
+    member: SquadMemberProfile,
+    isCurrentUser: Boolean
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(name, style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                players.joinToString(", "),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
-fun MemberCard(member: SquadMember) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -154,39 +219,45 @@ fun MemberCard(member: SquadMember) {
                 imageVector = Icons.Default.Person,
                 contentDescription = null,
                 modifier = Modifier.size(40.dp),
-                tint = if (member.isOnline)
-                    MaterialTheme.colorScheme.primary
-                else
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                tint = MaterialTheme.colorScheme.primary
             )
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.size(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                Text(member.name, style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    member.role,
+                    text = member.callsign,
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Text(
+                    text = member.displayName,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = member.squadRole.label,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
-            // Online indicator
             Surface(
                 shape = MaterialTheme.shapes.small,
-                color = if (member.isOnline)
+                color = if (isCurrentUser) {
                     MaterialTheme.colorScheme.tertiaryContainer
-                else
+                } else {
                     MaterialTheme.colorScheme.surfaceVariant
+                }
             ) {
                 Text(
-                    text = if (member.isOnline) "Online" else "Offline",
+                    text = if (isCurrentUser) "Tu perfil" else member.accountRole.label,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (member.isOnline)
+                    color = if (isCurrentUser) {
                         MaterialTheme.colorScheme.onTertiaryContainer
-                    else
+                    } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
+                    }
                 )
             }
         }
