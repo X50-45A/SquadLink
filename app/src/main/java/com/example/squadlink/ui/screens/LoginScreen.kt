@@ -102,12 +102,6 @@ fun LoginScreen(
                 modifier = Modifier.size(140.dp),
                 tint = Color.Unspecified
             )
-            Text("Firebase ya gestiona las cuentas reales de SquadLink.", fontSize = 18.sp)
-            Text(
-                "Para probar ambos flujos, crea una cuenta Game Master y otra Jugador.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
