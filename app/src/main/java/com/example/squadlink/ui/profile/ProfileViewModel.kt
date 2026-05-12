@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.squadlink.data.FirebaseAccountRepository
 import com.example.squadlink.data.UserPreferencesRepository
-import com.example.squadlink.model.AccountRole
 import com.example.squadlink.model.SquadRole
 import com.example.squadlink.model.UserAccountProfile
 import com.google.firebase.FirebaseNetworkException
@@ -102,8 +101,7 @@ class ProfileViewModel(
     fun register(
         displayName: String,
         email: String,
-        password: String,
-        role: AccountRole
+        password: String
     ) {
         viewModelScope.launch {
             viewState.update { it.copy(isBusy = true, errorMessage = null) }
@@ -111,8 +109,7 @@ class ProfileViewModel(
                 accountRepository.register(
                     displayName = displayName,
                     email = email,
-                    password = password,
-                    role = role
+                    password = password
                 )
                 startProfileObservation()
             } catch (error: Throwable) {

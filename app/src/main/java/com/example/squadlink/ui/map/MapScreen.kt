@@ -51,6 +51,7 @@ import kotlinx.coroutines.delay
 import com.example.squadlink.ui.session.GameSessionViewModel
 import androidx.core.graphics.createBitmap
 import com.example.squadlink.R
+import com.example.squadlink.data.FieldRepository
 import com.example.squadlink.data.FirebaseAccountRepository
 import com.example.squadlink.data.FirebaseGameMapRepository
 import com.example.squadlink.data.UserPreferencesRepository
@@ -88,6 +89,9 @@ fun MapScreen(
     val accountRepo = remember(ctx) { FirebaseAccountRepository(preferencesRepo) }
     val gameMapRepo = remember { FirebaseGameMapRepository() }
     val currentProfile by accountRepo.observeCurrentProfile().collectAsState(initial = null)
+    val activeGame by gameMapRepo
+        .observeGame(sessionState.activeGameCode)
+        .collectAsState(initial = null)
     val teamAliases = remember(currentProfile?.squadName, currentProfile?.squadCode) {
         listOf(currentProfile?.squadName, currentProfile?.squadCode)
             .mapNotNull { it?.trim()?.takeIf(String::isNotBlank) }
@@ -179,6 +183,17 @@ fun MapScreen(
 
     val currentFieldId = field?.id
     val selectedFieldId = selectedField?.id
+    val activeGameFieldId = activeGame?.fieldId
+    LaunchedEffect(activeGameFieldId, currentFieldId) {
+        val gameFieldId = activeGameFieldId ?: return@LaunchedEffect
+        if (gameFieldId != currentFieldId) {
+            FieldRepository.fields.firstOrNull { it.id == gameFieldId }?.let { gameField ->
+                mapVm.onFieldLoaded(gameField)
+                showFieldPicker = false
+            }
+        }
+    }
+
     LaunchedEffect(selectedFieldId, currentFieldId) {
         if (selectedField != null && selectedField.id != currentFieldId) {
             mapVm.onFieldLoaded(selectedField)

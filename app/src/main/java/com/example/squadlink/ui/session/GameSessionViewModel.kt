@@ -50,11 +50,15 @@ class GameSessionViewModel(
     fun startGame(code: String) {
         viewModelScope.launch {
             repo.setActiveGameCode(code)
+            repo.setIsGameMaster(true)
         }
     }
 
     fun endGame() {
-        viewModelScope.launch { repo.clearActiveGameCode() }
+        viewModelScope.launch {
+            repo.clearActiveGameCode()
+            repo.setIsGameMaster(false)
+        }
     }
 
     fun setGameMaster(enabled: Boolean) {

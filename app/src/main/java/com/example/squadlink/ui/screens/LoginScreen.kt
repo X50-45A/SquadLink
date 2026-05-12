@@ -41,7 +41,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.squadlink.R
-import com.example.squadlink.model.AccountRole
 import com.example.squadlink.ui.profile.ProfileViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -56,7 +55,6 @@ fun LoginScreen(
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var confirmPassword by rememberSaveable { mutableStateOf("") }
-    var selectedRole by rememberSaveable { mutableStateOf(AccountRole.PLAYER) }
 
     LaunchedEffect(state.isSessionResolved, state.activeUser) {
         if (state.isSessionResolved && state.activeUser.isNotBlank()) {
@@ -191,23 +189,11 @@ fun LoginScreen(
                 )
 
                 Text(
-                    "Rol de la cuenta",
+                    "El rol se decide en cada partida: quien crea una partida actua como Game Master; quien se une entra como jugador.",
                     modifier = Modifier.fillMaxWidth(),
-                    style = MaterialTheme.typography.titleSmall
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    AccountRole.entries.forEach { role ->
-                        FilterChip(
-                            selected = selectedRole == role,
-                            onClick = { selectedRole = role },
-                            label = { Text(role.label) }
-                        )
-                    }
-                }
             }
 
             Button(
@@ -216,8 +202,7 @@ fun LoginScreen(
                         vm.register(
                             displayName = displayName,
                             email = email,
-                            password = password,
-                            role = selectedRole
+                            password = password
                         )
                     } else {
                         vm.signIn(email = email, password = password)

@@ -65,8 +65,7 @@ class FirebaseAccountRepository(
     suspend fun register(
         displayName: String,
         email: String,
-        password: String,
-        role: AccountRole
+        password: String
     ): UserAccountProfile {
         val normalizedEmail = email.trim()
         val normalizedName = displayName.trim()
@@ -78,7 +77,7 @@ class FirebaseAccountRepository(
             uid = firebaseUser.uid,
             displayName = normalizedName,
             email = normalizedEmail,
-            role = role,
+            role = AccountRole.PLAYER,
             callsign = normalizedName,
             squadRole = SquadRole.RIFLEMAN
         )
@@ -411,8 +410,8 @@ class FirebaseAccountRepository(
         preferencesRepository.setActiveUserName(profile.displayName)
         preferencesRepository.setActiveUserEmail(profile.email)
         preferencesRepository.setPlayerName(profile.callsign.ifBlank { profile.displayName })
-        preferencesRepository.setIsGameMaster(profile.role == AccountRole.GAME_MASTER)
-        if (resetGameCode || profile.squadId.isBlank()) {
+        if (resetGameCode) {
+            preferencesRepository.setIsGameMaster(false)
             preferencesRepository.clearActiveGameCode()
         }
     }

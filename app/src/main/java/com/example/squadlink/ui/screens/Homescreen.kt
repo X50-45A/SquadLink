@@ -66,17 +66,26 @@ fun HomeScreen(
 
         Spacer(modifier = Modifier.height(48.dp))
 
-        if (sessionState.isGameMaster) {
+        if (sessionState.activeGameCode.isNotBlank()) {
+            Button(
+                onClick = if (sessionState.isGameMaster) onCreateGame else onJoinGame,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+            ) {
+                Text("Volver a la partida", fontSize = 16.sp)
+            }
+        } else {
             Button(
                 onClick = onCreateGame,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp)
             ) {
-                Text("Acceso Game Master", fontSize = 16.sp)
+                Text("Crear partida", fontSize = 16.sp)
             }
-        } else {
-            Button(
+            Spacer(modifier = Modifier.height(12.dp))
+            OutlinedButton(
                 onClick = onJoinGame,
                 modifier = Modifier
                     .fillMaxWidth()

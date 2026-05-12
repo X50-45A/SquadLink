@@ -70,7 +70,7 @@ fun ProfileScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                if (state.isGameMaster) "Rol de cuenta: Game Master" else "Rol de cuenta: Jugador",
+                if (state.isGameMaster) "Rol en partida: Game Master" else "Rol en partida: Jugador",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
