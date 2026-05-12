@@ -115,6 +115,22 @@ class FirebaseAccountRepository(
         awaitClose { registration.remove() }
     }
 
+    fun observeSquad(squadId: String): Flow<SquadSummary?> = callbackFlow {
+        val registration = firestore
+            .collection(SQUADS_COLLECTION)
+            .document(squadId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+
+                trySend(snapshot?.toSquadSummary())
+            }
+
+        awaitClose { registration.remove() }
+    }
+
     fun observeSquadMembers(squadId: String): Flow<List<SquadMemberProfile>> = callbackFlow {
         val registration = firestore
             .collection(USERS_COLLECTION)
@@ -224,6 +240,9 @@ class FirebaseAccountRepository(
     suspend fun joinSquad(joinCode: String): SquadSummary {
         val currentUser = requireCurrentUser()
         val currentProfile = fetchOrCreateProfile(currentUser)
+        if (currentProfile.squadId.isNotBlank()) {
+            error("Sal del escuadron actual antes de unirte a otro.")
+        }
         val normalizedCode = joinCode.trim().uppercase()
         require(normalizedCode.isNotBlank()) { "Introduce un codigo de escuadron valido." }
 
@@ -254,6 +273,33 @@ class FirebaseAccountRepository(
         return squad
     }
 
+    suspend fun removeMember(memberId: String) {
+        val currentUser = requireCurrentUser()
+        val currentProfile = fetchOrCreateProfile(currentUser)
+        require(currentProfile.squadId.isNotBlank()) { "No perteneces a ningun escuadron." }
+        require(memberId != currentUser.uid) { "Usa la opcion de salir para abandonar tu escuadron." }
+
+        val squad = fetchSquadSummary(currentProfile.squadId)
+            ?: error("No se encontro el escuadron actual.")
+        require(squad.createdBy == currentUser.uid) {
+            "Solo el Team Leader puede expulsar miembros."
+        }
+
+        val memberSnapshot = firestore
+            .collection(USERS_COLLECTION)
+            .document(memberId)
+            .get()
+            .awaitResult()
+
+        require(memberSnapshot.exists()) { "No se encontro el miembro seleccionado." }
+        val memberSquadId = memberSnapshot.getString(FIELD_SQUAD_ID)?.trim().orEmpty()
+        require(memberSquadId == currentProfile.squadId) {
+            "Ese usuario ya no pertenece a tu escuadron."
+        }
+
+        clearUserSquadAssignment(memberId)
+    }
+
     suspend fun leaveSquad() {
         val currentUser = requireCurrentUser()
         val currentProfile = fetchOrCreateProfile(currentUser)
@@ -261,12 +307,37 @@ class FirebaseAccountRepository(
             return
         }
 
-        val updatedProfile = currentProfile.copy(
-            squadId = "",
-            squadName = "",
-            squadCode = ""
-        )
-        saveProfile(updatedProfile, isNewUser = false)
+        val squadId = currentProfile.squadId
+        val squad = fetchSquadSummary(squadId)
+
+        if (squad?.createdBy == currentUser.uid) {
+            val successorId = findNextLeaderId(
+                squadId = squadId,
+                excludingUserId = currentUser.uid
+            )
+
+            if (successorId == null) {
+                firestore
+                    .collection(SQUADS_COLLECTION)
+                    .document(squadId)
+                    .delete()
+                    .awaitResult()
+            } else {
+                firestore
+                    .collection(SQUADS_COLLECTION)
+                    .document(squadId)
+                    .update(
+                        mapOf(
+                            FIELD_CREATED_BY to successorId,
+                            FIELD_UPDATED_AT to FieldValue.serverTimestamp()
+                        )
+                    )
+                    .awaitResult()
+            }
+        }
+
+        clearUserSquadAssignment(currentUser.uid)
+        val updatedProfile = currentProfile.clearSquad()
         syncLocalProfile(updatedProfile, resetGameCode = false)
     }
 
@@ -315,6 +386,21 @@ class FirebaseAccountRepository(
             .collection(USERS_COLLECTION)
             .document(profile.uid)
             .set(payload, SetOptions.merge())
+            .awaitResult()
+    }
+
+    private suspend fun clearUserSquadAssignment(userId: String) {
+        firestore
+            .collection(USERS_COLLECTION)
+            .document(userId)
+            .update(
+                mapOf(
+                    FIELD_SQUAD_ID to "",
+                    FIELD_SQUAD_NAME to "",
+                    FIELD_SQUAD_CODE to "",
+                    FIELD_UPDATED_AT to FieldValue.serverTimestamp()
+                )
+            )
             .awaitResult()
     }
 
@@ -375,6 +461,31 @@ class FirebaseAccountRepository(
         return auth.currentUser ?: error("Necesitas iniciar sesion para realizar esta accion.")
     }
 
+    private suspend fun fetchSquadSummary(squadId: String): SquadSummary? {
+        return firestore
+            .collection(SQUADS_COLLECTION)
+            .document(squadId)
+            .get()
+            .awaitResult()
+            .toSquadSummary()
+    }
+
+    private suspend fun findNextLeaderId(
+        squadId: String,
+        excludingUserId: String
+    ): String? {
+        val snapshot = firestore
+            .collection(USERS_COLLECTION)
+            .whereEqualTo(FIELD_SQUAD_ID, squadId)
+            .orderBy(FIELD_CALLSIGN, Query.Direction.ASCENDING)
+            .get()
+            .awaitResult()
+
+        return snapshot.documents
+            .firstOrNull { document -> document.id != excludingUserId }
+            ?.id
+    }
+
     private fun DocumentSnapshot.toUserAccountProfile(firebaseUser: FirebaseUser): UserAccountProfile {
         val fallbackName = firebaseUser.displayName
             ?.takeIf { it.isNotBlank() }
@@ -400,6 +511,27 @@ class FirebaseAccountRepository(
             squadName = getString(FIELD_SQUAD_NAME)?.trim().orEmpty(),
             squadCode = getString(FIELD_SQUAD_CODE)?.trim().orEmpty(),
             squadRole = SquadRole.fromWireValue(getString(FIELD_SQUAD_ROLE))
+        )
+    }
+
+    private fun DocumentSnapshot.toSquadSummary(): SquadSummary? {
+        if (!exists()) {
+            return null
+        }
+
+        return SquadSummary(
+            id = id,
+            name = getString(FIELD_DISPLAY_NAME)?.trim().orEmpty(),
+            joinCode = getString(FIELD_JOIN_CODE)?.trim().orEmpty(),
+            createdBy = getString(FIELD_CREATED_BY)?.trim().orEmpty()
+        )
+    }
+
+    private fun UserAccountProfile.clearSquad(): UserAccountProfile {
+        return copy(
+            squadId = "",
+            squadName = "",
+            squadCode = ""
         )
     }
 }

@@ -167,13 +167,13 @@ fun ProfileScreen(
             Text("Escuadron actual", style = MaterialTheme.typography.titleMedium)
             if (state.squadName.isBlank()) {
                 Text(
-                    "Todavia no perteneces a ningun escuadron. Puedes crear uno o unirte desde la pestaña Escuadron.",
+                    "Todavia no perteneces a ningun escuadron. Puedes crear uno o unirte desde la pestana Escuadron.",
                     style = MaterialTheme.typography.bodyMedium
                 )
             } else {
                 Text(state.squadName, style = MaterialTheme.typography.headlineSmall)
                 Text(
-                    "Codigo de union: ${state.squadCode}",
+                    "La gestion de miembros y el codigo de union estan en la pestana Escuadron.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

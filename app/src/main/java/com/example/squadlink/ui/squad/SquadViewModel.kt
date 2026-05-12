@@ -8,6 +8,7 @@ import com.example.squadlink.data.UserPreferencesRepository
 import com.example.squadlink.model.AccountRole
 import com.example.squadlink.model.SquadMemberProfile
 import com.example.squadlink.model.SquadRole
+import com.example.squadlink.model.SquadSummary
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -27,12 +28,16 @@ data class SquadUiState(
     val currentAccountRole: AccountRole = AccountRole.PLAYER,
     val squadName: String = "",
     val squadCode: String = "",
+    val squadLeaderId: String = "",
     val members: List<SquadMemberProfile> = emptyList(),
     val isBusy: Boolean = false,
     val errorMessage: String? = null
 ) {
     val hasSquad: Boolean
         get() = squadName.isNotBlank()
+
+    val isLeader: Boolean
+        get() = currentUserId.isNotBlank() && currentUserId == squadLeaderId
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -63,19 +68,35 @@ class SquadViewModel(
             initialValue = emptyList()
         )
 
+    private val squadFlow: StateFlow<SquadSummary?> = profileFlow
+        .flatMapLatest { profile ->
+            if (profile?.squadId.isNullOrBlank()) {
+                flowOf(null)
+            } else {
+                accountRepository.observeSquad(profile!!.squadId)
+            }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = null
+        )
+
     val uiState: StateFlow<SquadUiState> = combine(
         profileFlow,
+        squadFlow,
         membersFlow,
         viewState
-    ) { profile, members, state ->
+    ) { profile, squad, members, state ->
         state.copy(
             currentUserId = profile?.uid.orEmpty(),
             currentUserName = profile?.displayName.orEmpty(),
             currentUserCallsign = profile?.callsign.orEmpty(),
             currentSquadRole = profile?.squadRole ?: SquadRole.RIFLEMAN,
             currentAccountRole = profile?.role ?: AccountRole.PLAYER,
-            squadName = profile?.squadName.orEmpty(),
-            squadCode = profile?.squadCode.orEmpty(),
+            squadName = squad?.name ?: profile?.squadName.orEmpty(),
+            squadCode = squad?.joinCode ?: profile?.squadCode.orEmpty(),
+            squadLeaderId = squad?.createdBy.orEmpty(),
             members = members
         )
     }.stateIn(
@@ -99,6 +120,12 @@ class SquadViewModel(
     fun leaveSquad() {
         runBusyAction {
             accountRepository.leaveSquad()
+        }
+    }
+
+    fun removeMember(memberId: String) {
+        runBusyAction {
+            accountRepository.removeMember(memberId)
         }
     }
 

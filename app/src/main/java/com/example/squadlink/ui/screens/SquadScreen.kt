@@ -1,5 +1,6 @@
 package com.example.squadlink.ui.screens
 
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -23,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -30,8 +33,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -45,6 +48,7 @@ fun SquadScreen(vm: SquadViewModel) {
     val state by vm.uiState.collectAsState()
     var squadNameInput by rememberSaveable { mutableStateOf("") }
     var joinCodeInput by rememberSaveable { mutableStateOf("") }
+    var memberToRemove by rememberSaveable(state.currentUserId) { mutableStateOf<String?>(null) }
     val title = if (state.currentAccountRole == AccountRole.GAME_MASTER) {
         "Jugadores"
     } else {
@@ -165,7 +169,11 @@ fun SquadScreen(vm: SquadViewModel) {
                         ) {
                             Text(state.squadName, style = MaterialTheme.typography.headlineSmall)
                             Text(
-                                "Codigo de union: ${state.squadCode}",
+                                if (state.isLeader) {
+                                    "Codigo de union: ${state.squadCode}"
+                                } else {
+                                    "Tu Team Leader gestiona las invitaciones al escuadron."
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                             )
@@ -174,6 +182,13 @@ fun SquadScreen(vm: SquadViewModel) {
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                             )
+                            if (state.isLeader) {
+                                Text(
+                                    "Comparte este codigo para agregar miembros nuevos. Mantén pulsado sobre un miembro para expulsarlo.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                )
+                            }
                         }
                     }
                 }
@@ -195,20 +210,65 @@ fun SquadScreen(vm: SquadViewModel) {
                 items(state.members, key = { it.uid }) { member ->
                     MemberCard(
                         member = member,
-                        isCurrentUser = member.uid == state.currentUserId
+                        isCurrentUser = member.uid == state.currentUserId,
+                        isLeader = member.uid == state.squadLeaderId,
+                        canRemove = state.isLeader && member.uid != state.currentUserId,
+                        onLongPress = { memberToRemove = member.uid }
                     )
                 }
             }
         }
+    }
+
+    val selectedMember = state.members.firstOrNull { it.uid == memberToRemove }
+    if (selectedMember != null) {
+        AlertDialog(
+            onDismissRequest = { memberToRemove = null },
+            title = { Text("Expulsar miembro") },
+            text = {
+                Text(
+                    "Se eliminara a ${selectedMember.callsign} del escuadron actual. Podra volver a entrar si recibe de nuevo el codigo de union."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.removeMember(selectedMember.uid)
+                        memberToRemove = null
+                    }
+                ) {
+                    Text("Expulsar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { memberToRemove = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 }
 
 @Composable
 private fun MemberCard(
     member: SquadMemberProfile,
-    isCurrentUser: Boolean
+    isCurrentUser: Boolean,
+    isLeader: Boolean,
+    canRemove: Boolean,
+    onLongPress: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = { },
+                onLongClick = {
+                    if (canRemove) {
+                        onLongPress()
+                    }
+                }
+            )
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -245,16 +305,24 @@ private fun MemberCard(
                 shape = MaterialTheme.shapes.small,
                 color = if (isCurrentUser) {
                     MaterialTheme.colorScheme.tertiaryContainer
+                } else if (isLeader) {
+                    MaterialTheme.colorScheme.primaryContainer
                 } else {
                     MaterialTheme.colorScheme.surfaceVariant
                 }
             ) {
                 Text(
-                    text = if (isCurrentUser) "Tu perfil" else member.accountRole.label,
+                    text = when {
+                        isCurrentUser -> "Tu perfil"
+                        isLeader -> "Team Leader"
+                        else -> member.accountRole.label
+                    },
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.labelSmall,
                     color = if (isCurrentUser) {
                         MaterialTheme.colorScheme.onTertiaryContainer
+                    } else if (isLeader) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     }
