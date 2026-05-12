@@ -319,7 +319,7 @@ fun MapScreen(
                     }
                 },
                 onMapLongClick = { latLng ->
-                    if (sessionState.isGameMaster && sessionState.activeGameCode.isNotBlank()) {
+                    if (sessionState.activeGameCode.isNotBlank()) {
                         objectiveMenuPosition = latLng
                         selectedObjective = null
                         selectedTacticalMarker = null
@@ -365,7 +365,7 @@ fun MapScreen(
                     }
                 },
                 onMapLongClick = { latLng ->
-                    if (sessionState.isGameMaster && sessionState.activeGameCode.isNotBlank()) {
+                    if (sessionState.activeGameCode.isNotBlank()) {
                         objectiveMenuPosition = latLng
                         selectedObjective = null
                         selectedTacticalMarker = null
@@ -448,9 +448,29 @@ fun MapScreen(
         objectiveMenuPosition?.let { position ->
             ObjectiveMapActionCard(
                 modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
-                onAdd = {
+                isGameMaster = sessionState.isGameMaster,
+                onAddObjective = {
                     objectiveEditorPosition = position
                     objectiveEditorTarget = null
+                    objectiveMenuPosition = null
+                },
+                onAddMarker = {
+                    mapVm.setMarkerMode(com.example.squadlink.ui.map.MarkerType.CUSTOM)
+                    // Note: In a real flow, we might want to trigger the placement immediately at 'position'
+                    // but current UI flow uses onMapClick for placement. 
+                    // To fix this fully, we'd need to call addTacticalMarker directly.
+                    val marker = mapVm.addTacticalMarker(
+                        type = com.example.squadlink.ui.map.MarkerType.CUSTOM,
+                        position = position,
+                        label = markerLabelFor(com.example.squadlink.ui.map.MarkerType.CUSTOM, customMarkerLabel),
+                        ownerName = sessionState.suggestedPlayerName,
+                        ownerTeam = if (sessionState.isGameMaster) "" else currentTeamLabel
+                    )
+                    if (sessionState.activeGameCode.isNotBlank()) {
+                        scope.launch {
+                            gameMapRepo.upsertTacticalMarker(sessionState.activeGameCode, marker)
+                        }
+                    }
                     objectiveMenuPosition = null
                 },
                 onDismiss = { objectiveMenuPosition = null }
@@ -954,7 +974,9 @@ private fun MapLoadErrorCard(modifier: Modifier, onRetry: () -> Unit) {
 @Composable
 private fun ObjectiveMapActionCard(
     modifier: Modifier,
-    onAdd: () -> Unit,
+    isGameMaster: Boolean,
+    onAddObjective: () -> Unit,
+    onAddMarker: () -> Unit,
     onDismiss: () -> Unit
 ) {
     Card(
@@ -973,8 +995,13 @@ private fun ObjectiveMapActionCard(
                 color = Color.White,
                 style = MaterialTheme.typography.bodySmall
             )
-            TextButton(onClick = onAdd) {
-                Text("Añadir objetivo dinamico")
+            if (isGameMaster) {
+                TextButton(onClick = onAddObjective) {
+                    Text("Objetivo dinamico")
+                }
+            }
+            TextButton(onClick = onAddMarker) {
+                Text(if (isGameMaster) "Marcador" else "Añadir marcador")
             }
             IconButton(onClick = onDismiss) {
                 Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White)

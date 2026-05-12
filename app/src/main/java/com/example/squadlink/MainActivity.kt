@@ -136,7 +136,7 @@ fun SquadLinkApp() {
             }
         }
     ) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             TacticalBackground(modifier = Modifier.matchParentSize())
             NavGraph(
                 navController = navController,
