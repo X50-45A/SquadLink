@@ -51,6 +51,10 @@ class FirebaseGameMapRepository(
         private const val FIELD_SQUAD_ROLE = "squadRole"
         private const val FIELD_TEAM = "team"
         private const val FIELD_EXPELLED = "expelled"
+        private const val FIELD_START_TIME = "startTime"
+        private const val FIELD_REST_START_TIME = "restStartTime"
+        private const val FIELD_REST_END_TIME = "restEndTime"
+        private const val FIELD_END_TIME = "endTime"
     }
 
     fun observeGame(gameCode: String): Flow<ActiveGame?> = callbackFlow {
@@ -120,7 +124,11 @@ class FirebaseGameMapRepository(
         gameCode: String,
         fieldId: String,
         missionType: ObjectiveType,
-        missionDescription: String
+        missionDescription: String,
+        startTime: String,
+        restStartTime: String,
+        restEndTime: String,
+        endTime: String
     ) {
         val currentUser = requireCurrentUser()
         val profile = fetchCurrentProfile()
@@ -138,6 +146,10 @@ class FirebaseGameMapRepository(
                     FIELD_GM_NAME to profile.callsign.ifBlank { profile.displayName },
                     FIELD_MISSION_TYPE to missionType.name,
                     FIELD_MISSION_DESCRIPTION to missionDescription.trim(),
+                    FIELD_START_TIME to startTime,
+                    FIELD_REST_START_TIME to restStartTime,
+                    FIELD_REST_END_TIME to restEndTime,
+                    FIELD_END_TIME to endTime,
                     FIELD_CREATED_AT to FieldValue.serverTimestamp(),
                     FIELD_UPDATED_AT to FieldValue.serverTimestamp()
                 ),
@@ -361,7 +373,11 @@ class FirebaseGameMapRepository(
             gmUid = getString(FIELD_GM_UID)?.trim().orEmpty(),
             gmName = getString(FIELD_GM_NAME)?.trim().orEmpty(),
             missionType = ObjectiveType.fromWireValue(getString(FIELD_MISSION_TYPE)),
-            missionDescription = getString(FIELD_MISSION_DESCRIPTION)?.trim().orEmpty()
+            missionDescription = getString(FIELD_MISSION_DESCRIPTION)?.trim().orEmpty(),
+            startTime = getString(FIELD_START_TIME).orEmpty(),
+            restStartTime = getString(FIELD_REST_START_TIME).orEmpty(),
+            restEndTime = getString(FIELD_REST_END_TIME).orEmpty(),
+            endTime = getString(FIELD_END_TIME).orEmpty()
         )
     }
 
@@ -424,7 +440,11 @@ data class ActiveGame(
     val gmUid: String,
     val gmName: String,
     val missionType: ObjectiveType,
-    val missionDescription: String
+    val missionDescription: String,
+    val startTime: String = "",
+    val restStartTime: String = "",
+    val restEndTime: String = "",
+    val endTime: String = ""
 )
 
 data class GamePlayer(

@@ -456,9 +456,7 @@ fun MapScreen(
                 },
                 onAddMarker = {
                     mapVm.setMarkerMode(com.example.squadlink.ui.map.MarkerType.CUSTOM)
-                    // Note: In a real flow, we might want to trigger the placement immediately at 'position'
-                    // but current UI flow uses onMapClick for placement. 
-                    // To fix this fully, we'd need to call addTacticalMarker directly.
+
                     val marker = mapVm.addTacticalMarker(
                         type = com.example.squadlink.ui.map.MarkerType.CUSTOM,
                         position = position,

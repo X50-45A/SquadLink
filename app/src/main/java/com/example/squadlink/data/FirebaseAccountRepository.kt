@@ -12,6 +12,8 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.storage.FirebaseStorage
+import android.net.Uri
 import kotlin.random.Random
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -39,6 +41,7 @@ class FirebaseAccountRepository(
         private const val FIELD_UPDATED_AT = "updatedAt"
         private const val FIELD_JOIN_CODE = "joinCode"
         private const val FIELD_CREATED_BY = "createdBy"
+        private const val FIELD_PHOTO_URL = "photoUrl"
     }
 
     suspend fun restoreSession(): UserAccountProfile? {
@@ -345,6 +348,22 @@ class FirebaseAccountRepository(
         preferencesRepository.clearSession()
     }
 
+    suspend fun uploadProfilePicture(uri: Uri): String {
+        val currentUser = requireCurrentUser()
+        val storageRef = FirebaseStorage.getInstance().reference
+            .child("profiles/${currentUser.uid}.jpg")
+        
+        storageRef.putFile(uri).awaitResult()
+        val downloadUrl = storageRef.downloadUrl.awaitResult().toString()
+        
+        firestore.collection(USERS_COLLECTION)
+            .document(currentUser.uid)
+            .update(FIELD_PHOTO_URL, downloadUrl)
+            .awaitResult()
+            
+        return downloadUrl
+    }
+
     private suspend fun fetchOrCreateProfile(firebaseUser: FirebaseUser): UserAccountProfile {
         val snapshot = firestore
             .collection(USERS_COLLECTION)
@@ -509,7 +528,8 @@ class FirebaseAccountRepository(
             squadId = getString(FIELD_SQUAD_ID)?.trim().orEmpty(),
             squadName = getString(FIELD_SQUAD_NAME)?.trim().orEmpty(),
             squadCode = getString(FIELD_SQUAD_CODE)?.trim().orEmpty(),
-            squadRole = SquadRole.fromWireValue(getString(FIELD_SQUAD_ROLE))
+            squadRole = SquadRole.fromWireValue(getString(FIELD_SQUAD_ROLE)),
+            photoUrl = getString(FIELD_PHOTO_URL).orEmpty()
         )
     }
 

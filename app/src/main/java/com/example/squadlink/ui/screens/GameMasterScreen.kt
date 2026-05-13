@@ -76,6 +76,12 @@ fun GameMasterScreen(
     }
     var missionMenuExpanded by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    var startTime by remember { mutableStateOf("09:15") }
+    var restStartTime by remember { mutableStateOf("11:30") }
+    var restEndTime by remember { mutableStateOf("12:15") }
+    var endTime by remember { mutableStateOf( "14:00") }
+
     val hasActiveGame = sessionState.activeGameCode.isNotBlank()
     val isRunning = activeGame?.phase == GamePhase.RUNNING
     val showBriefingTools = hasActiveGame && !isRunning
@@ -209,6 +215,55 @@ fun GameMasterScreen(
 
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Horario de la partida", style = MaterialTheme.typography.titleMedium)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = activeGame?.startTime ?: startTime,
+                                onValueChange = { startTime = it },
+                                label = { Text("Inicio") },
+                                modifier = Modifier.weight(1f),
+                                enabled = !hasActiveGame,
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = activeGame?.endTime ?: endTime,
+                                onValueChange = { endTime = it },
+                                label = { Text("Final") },
+                                modifier = Modifier.weight(1f),
+                                enabled = !hasActiveGame,
+                                singleLine = true
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = activeGame?.restStartTime ?: restStartTime,
+                                onValueChange = { restStartTime = it },
+                                label = { Text("Descanso (inicio)") },
+                                modifier = Modifier.weight(1f),
+                                enabled = !hasActiveGame,
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = activeGame?.restEndTime ?: restEndTime,
+                                onValueChange = { restEndTime = it },
+                                label = { Text("Descanso (fin)") },
+                                modifier = Modifier.weight(1f),
+                                enabled = !hasActiveGame,
+                                singleLine = true
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
                     Column(
                         modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -241,7 +296,11 @@ fun GameMasterScreen(
                                                 gameCode = gameCode,
                                                 fieldId = selectedField?.id.orEmpty(),
                                                 missionType = missionType,
-                                                missionDescription = missionDescription
+                                                missionDescription = missionDescription,
+                                                startTime = startTime,
+                                                restStartTime = restStartTime,
+                                                restEndTime = restEndTime,
+                                                endTime = endTime
                                             )
                                             sessionVm.startGame(gameCode)
                                         } catch (error: Throwable) {
