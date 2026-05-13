@@ -3,6 +3,7 @@ package com.example.squadlink.data
 import com.example.squadlink.ui.map.DynamicObjective
 import com.example.squadlink.ui.map.MarkerType
 import com.example.squadlink.ui.map.ObjectiveType
+import com.example.squadlink.ui.map.SafeZoneArea
 import com.example.squadlink.ui.map.TacticalMarker
 import com.google.android.gms.maps.model.LatLng
 import com.google.firebase.auth.FirebaseAuth
@@ -23,6 +24,7 @@ class FirebaseGameMapRepository(
     companion object {
         private const val GAMES_COLLECTION = "games"
         private const val TACTICAL_MARKERS_COLLECTION = "tacticalMarkers"
+        private const val SAFE_ZONE_AREAS_COLLECTION = "safeZoneAreas"
         private const val DYNAMIC_OBJECTIVES_COLLECTION = "dynamicObjectives"
         private const val PLAYERS_COLLECTION = "players"
 
@@ -40,6 +42,8 @@ class FirebaseGameMapRepository(
         private const val FIELD_CODE = "code"
         private const val FIELD_FIELD_ID = "fieldId"
         private const val FIELD_PHASE = "phase"
+        private const val FIELD_RADIUS = "radius"
+        private const val FIELD_POINTS = "points"
         private const val FIELD_GM_UID = "gmUid"
         private const val FIELD_GM_NAME = "gmName"
         private const val FIELD_MISSION_TYPE = "missionType"
@@ -249,6 +253,28 @@ class FirebaseGameMapRepository(
         awaitClose { registration.remove() }
     }
 
+    fun observeSafeZoneAreas(gameCode: String): Flow<List<SafeZoneArea>> = callbackFlow {
+        if (gameCode.isBlank()) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+
+        val registration = gameDocument(gameCode)
+            .collection(SAFE_ZONE_AREAS_COLLECTION)
+            .orderBy(FIELD_CREATED_AT, Query.Direction.ASCENDING)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+
+                trySend(snapshot?.documents?.mapNotNull { it.toSafeZoneArea() }.orEmpty())
+            }
+
+        awaitClose { registration.remove() }
+    }
+
     fun observeDynamicObjectives(gameCode: String): Flow<List<DynamicObjective>> = callbackFlow {
         if (gameCode.isBlank()) {
             trySend(emptyList())
@@ -297,6 +323,35 @@ class FirebaseGameMapRepository(
         gameDocument(gameCode)
             .collection(TACTICAL_MARKERS_COLLECTION)
             .document(markerId)
+            .delete()
+            .awaitResult()
+    }
+
+    suspend fun upsertSafeZoneArea(gameCode: String, area: SafeZoneArea) {
+        require(gameCode.isNotBlank()) { "No hay una partida activa para sincronizar la zona segura." }
+        gameDocument(gameCode)
+            .collection(SAFE_ZONE_AREAS_COLLECTION)
+            .document(area.id)
+            .set(
+                mapOf(
+                    FIELD_DISPLAY_NAME to area.name,
+                    FIELD_LATITUDE to area.center.latitude,
+                    FIELD_LONGITUDE to area.center.longitude,
+                    FIELD_RADIUS to area.radius,
+                    FIELD_POINTS to area.points.map { mapOf(FIELD_LATITUDE to it.latitude, FIELD_LONGITUDE to it.longitude) },
+                    FIELD_UPDATED_AT to FieldValue.serverTimestamp(),
+                    FIELD_CREATED_AT to FieldValue.serverTimestamp()
+                ),
+                SetOptions.merge()
+            )
+            .awaitResult()
+    }
+
+    suspend fun deleteSafeZoneArea(gameCode: String, areaId: String) {
+        require(gameCode.isNotBlank()) { "No hay una partida activa para eliminar la zona segura." }
+        gameDocument(gameCode)
+            .collection(SAFE_ZONE_AREAS_COLLECTION)
+            .document(areaId)
             .delete()
             .awaitResult()
     }
@@ -417,6 +472,26 @@ class FirebaseGameMapRepository(
             }.getOrDefault(MarkerType.CUSTOM),
             ownerName = getString(FIELD_OWNER_NAME).orEmpty(),
             ownerTeam = getString(FIELD_OWNER_TEAM).orEmpty()
+        )
+    }
+
+    private fun DocumentSnapshot.toSafeZoneArea(): SafeZoneArea? {
+        val latitude = getDouble(FIELD_LATITUDE) ?: return null
+        val longitude = getDouble(FIELD_LONGITUDE) ?: return null
+        val radius = getDouble(FIELD_RADIUS)?.toFloat() ?: 50f
+        val pointsRaw = get(FIELD_POINTS) as? List<Map<String, Double>> ?: emptyList()
+        val points = pointsRaw.mapNotNull { 
+            val lat = it[FIELD_LATITUDE]
+            val lon = it[FIELD_LONGITUDE]
+            if (lat != null && lon != null) LatLng(lat, lon) else null
+        }
+        
+        return SafeZoneArea(
+            id = id,
+            name = getString(FIELD_DISPLAY_NAME).orEmpty().ifBlank { "Zona Segura" },
+            center = LatLng(latitude, longitude),
+            radius = radius,
+            points = points
         )
     }
 
