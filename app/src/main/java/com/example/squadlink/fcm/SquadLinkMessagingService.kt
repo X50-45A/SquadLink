@@ -27,6 +27,5 @@ class SquadLinkMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         Log.d("SquadLinkFCM", "New FCM token: $token")
-        // Here we would typically send the token to our server/firestore
     }
 }
