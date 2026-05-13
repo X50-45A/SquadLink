@@ -1,12 +1,29 @@
 package com.example.squadlink.ui.settings
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -18,7 +35,6 @@ fun SettingsScreen(
     onBack: () -> Unit
 ) {
     val state by vm.uiState.collectAsState()
-    var nameInput by remember(state.playerName) { mutableStateOf(state.playerName) }
 
     Scaffold(
         topBar = {
@@ -26,7 +42,7 @@ fun SettingsScreen(
                 title = { Text("Ajustes") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Volver")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
                     }
                 }
             )
@@ -42,9 +58,7 @@ fun SettingsScreen(
         ) {
             Spacer(Modifier.height(8.dp))
 
-            // ── Sección: Red / Apariencia ─────────────────────────────────
             PreferenceSectionHeader("Apariencia")
-
             PreferenceRow(
                 title = "Tema oscuro",
                 subtitle = "Interfaz en modo oscuro",
@@ -54,31 +68,10 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // ── Sección: Partida ──────────────────────────────────────────
             PreferenceSectionHeader("Partida")
-
-            // Player name — saved on focus lost / done
-            OutlinedTextField(
-                value = nameInput,
-                onValueChange = { nameInput = it },
-                label = { Text("Nombre en partida") },
-                placeholder = { Text("Ej: Alpha-1") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                singleLine = true,
-                trailingIcon = {
-                    if (nameInput != state.playerName) {
-                        TextButton(onClick = { vm.setPlayerName(nameInput) }) {
-                            Text("Guardar")
-                        }
-                    }
-                }
-            )
-
             PreferenceRow(
-                title = "Cuadrícula táctica",
-                subtitle = "Mostrar cuadrícula sobre el mapa",
+                title = "Cuadricula tactica",
+                subtitle = "Mostrar cuadricula sobre el mapa",
                 checked = state.showGrid,
                 onCheckedChange = vm::setShowGrid
             )
@@ -90,7 +83,14 @@ fun SettingsScreen(
                 onCheckedChange = vm::setKeepScreenOn
             )
 
-            Spacer(Modifier.height(16.dp))
+            PreferenceSectionHeader("Conectividad")
+
+            PreferenceRow(
+                title = "Sincronizar solo con Wi-Fi",
+                subtitle = "Ahorra datos moviles durante la partida",
+                checked = state.syncWifiOnly,
+                onCheckedChange = vm::setSyncWifiOnly
+            )
         }
     }
 }

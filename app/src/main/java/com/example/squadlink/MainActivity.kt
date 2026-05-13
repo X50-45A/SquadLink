@@ -24,6 +24,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.squadlink.data.FirebaseGameMapRepository
 import com.example.squadlink.data.UserPreferencesRepository
 import com.example.squadlink.navigation.NavGraph
 import com.example.squadlink.navigation.Screen
@@ -66,19 +67,27 @@ data class BottomNavItem(
     val route: String
 )
 
-private fun bottomNavItemsForRole(isGameMaster: Boolean): List<BottomNavItem> {
-    val squadLabel = if (isGameMaster) "Jugadores" else "Escuadron"
+private fun bottomNavItemsForRole(isGameMaster: Boolean, hasActiveGame: Boolean): List<BottomNavItem> {
+    if (hasActiveGame) {
+        val teamLabel = if (isGameMaster) "Equipos" else "Objetivos"
+        return listOf(
+            BottomNavItem("Mapa", Icons.Default.LocationOn, Screen.Map.route),
+            BottomNavItem(teamLabel, Icons.Default.AccountBox, Screen.Squad.route),
+            BottomNavItem("Perfil", Icons.Default.Person, Screen.Profile.route)
+        )
+    }
+
     return listOf(
         BottomNavItem("Lobby", Icons.Default.Home, Screen.Home.route),
         BottomNavItem("Mapa", Icons.Default.LocationOn, Screen.Map.route),
-        BottomNavItem(squadLabel, Icons.Default.AccountBox, Screen.Squad.route),
+        BottomNavItem("Escuadron", Icons.Default.AccountBox, Screen.Squad.route),
         BottomNavItem("Perfil", Icons.Default.Person, Screen.Profile.route),
         BottomNavItem("Ajustes", Icons.Default.Settings, Screen.Settings.route)
     )
 }
 
-private fun bottomNavScreensForRole(isGameMaster: Boolean): List<String> {
-    return bottomNavItemsForRole(isGameMaster).map { it.route }
+private fun bottomNavScreensForRole(isGameMaster: Boolean, hasActiveGame: Boolean): List<String> {
+    return bottomNavItemsForRole(isGameMaster, hasActiveGame).map { it.route }
 }
 
 @Composable
@@ -92,8 +101,28 @@ fun SquadLinkApp() {
 
     val isGameMaster by repo.isGameMaster.collectAsState(initial = false)
     val activeUser by repo.activeUserName.collectAsState(initial = "")
-    val bottomNavItems = remember(isGameMaster) { bottomNavItemsForRole(isGameMaster) }
-    val bottomNavScreens = remember(isGameMaster) { bottomNavScreensForRole(isGameMaster) }
+    val activeGameCode by repo.activeGameCode.collectAsState(initial = "")
+    val hasActiveGame = activeGameCode.isNotBlank()
+    val gameMapRepo = remember { FirebaseGameMapRepository() }
+
+    LaunchedEffect(activeGameCode, isGameMaster) {
+        if (activeGameCode.isBlank() || isGameMaster) return@LaunchedEffect
+        gameMapRepo.observeCurrentPlayerStatus(activeGameCode).collect { status ->
+            if (status?.expelled == true) {
+                repo.clearActiveGameCode()
+                repo.setIsGameMaster(false)
+                navController.navigate(Screen.Home.route) {
+                    popUpTo(Screen.Home.route) { inclusive = true }
+                }
+            }
+        }
+    }
+    val bottomNavItems = remember(isGameMaster, hasActiveGame) {
+        bottomNavItemsForRole(isGameMaster, hasActiveGame)
+    }
+    val bottomNavScreens = remember(isGameMaster, hasActiveGame) {
+        bottomNavScreensForRole(isGameMaster, hasActiveGame)
+    }
     val showBottomBar = activeUser.isNotBlank() && currentRoute in bottomNavScreens
 
     Scaffold(
@@ -107,7 +136,7 @@ fun SquadLinkApp() {
             }
         }
     ) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             TacticalBackground(modifier = Modifier.matchParentSize())
             NavGraph(
                 navController = navController,

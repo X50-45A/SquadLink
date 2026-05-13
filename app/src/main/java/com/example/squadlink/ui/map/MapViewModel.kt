@@ -23,15 +23,50 @@ data class TacticalMarker(
     val id: String,
     val label: String,
     val position: LatLng,
-    val type: MarkerType
+    val type: MarkerType,
+    val ownerName: String = "",
+    val ownerTeam: String = ""
+)
+
+data class SafeZoneArea(
+    val id: String,
+    val name: String,
+    val center: LatLng,
+    val radius: Float,
+    val points: List<LatLng> = emptyList()
 )
 
 enum class MarkerType { OBJECTIVE, SAFE_ZONE, DANGER, ENEMY, ENEMY_HEAVY, CONTACT, CUSTOM }
+
+data class DynamicObjective(
+    val id: String,
+    val type: ObjectiveType,
+    val description: String,
+    val position: LatLng,
+    val targetTeam: String? = null
+)
+
+enum class ObjectiveType(val label: String) {
+    RECOVERY("Recuperacion"),
+    FLAG("Bandera"),
+    VIP("VIP"),
+    SABOTAGE("Sabotaje"),
+    DEFENSE("Defensa"),
+    CUSTOM("Otro");
+
+    companion object {
+        fun fromWireValue(value: String?): ObjectiveType {
+            return entries.firstOrNull { it.name == value } ?: CUSTOM
+        }
+    }
+}
 
 data class MapUiState(
     val field: AirsoftField? = null,
     val players: List<PlayerMarker> = emptyList(),
     val tacticalMarkers: List<TacticalMarker> = emptyList(),
+    val safeZoneAreas: List<SafeZoneArea> = emptyList(),
+    val dynamicObjectives: List<DynamicObjective> = emptyList(),
     val markerMode: MarkerType? = null,
     val currentPlayerOutOfBounds: Boolean = false,
     val showOutOfBoundsAlert: Boolean = false,
@@ -59,6 +94,14 @@ class MapViewModel : ViewModel() {
         _uiState.update { it.copy(tacticalMarkers = markers) }
     }
 
+    fun onSafeZoneAreasUpdated(areas: List<SafeZoneArea>) {
+        _uiState.update { it.copy(safeZoneAreas = areas) }
+    }
+
+    fun onDynamicObjectivesUpdated(objectives: List<DynamicObjective>) {
+        _uiState.update { it.copy(dynamicObjectives = objectives) }
+    }
+
     /** Called when Firebase loads the field data for this game session */
     fun onFieldLoaded(field: AirsoftField) {
         objectiveIndex = 0
@@ -71,9 +114,11 @@ class MapViewModel : ViewModel() {
             it.copy(
                 field = field,
                 tacticalMarkers = emptyList(),
+                dynamicObjectives = emptyList(),
                 markerMode = null,
                 showOutOfBoundsAlert = false,
-                currentPlayerOutOfBounds = false
+                currentPlayerOutOfBounds = false,
+                safeZoneAreas = emptyList()
             )
         }
     }
@@ -102,7 +147,13 @@ class MapViewModel : ViewModel() {
         }
     }
 
-    fun addTacticalMarker(type: MarkerType, position: LatLng, label: String) {
+    fun addTacticalMarker(
+        type: MarkerType,
+        position: LatLng,
+        label: String,
+        ownerName: String = "",
+        ownerTeam: String = ""
+    ): TacticalMarker {
         val resolvedLabel = when (type) {
             MarkerType.OBJECTIVE -> {
                 val letter = ('A'.code + objectiveIndex).toChar()
@@ -135,9 +186,74 @@ class MapViewModel : ViewModel() {
             id = "${type.name.lowercase()}_${System.currentTimeMillis()}",
             label = resolvedLabel,
             position = position,
-            type = type
+            type = type,
+            ownerName = ownerName,
+            ownerTeam = ownerTeam
         )
         _uiState.update { it.copy(tacticalMarkers = it.tacticalMarkers + marker, markerMode = null) }
+        return marker
+    }
+
+    fun deleteTacticalMarker(markerId: String) {
+        _uiState.update {
+            it.copy(tacticalMarkers = it.tacticalMarkers.filterNot { marker -> marker.id == markerId })
+        }
+    }
+
+    fun addSafeZoneArea(
+        name: String,
+        center: LatLng,
+        radius: Float,
+        points: List<LatLng>
+    ): SafeZoneArea {
+        val area = SafeZoneArea(
+            id = "safezone_${System.currentTimeMillis()}",
+            name = name,
+            center = center,
+            radius = radius,
+            points = points
+        )
+        _uiState.update { it.copy(safeZoneAreas = it.safeZoneAreas + area) }
+        return area
+    }
+
+    fun deleteSafeZoneArea(areaId: String) {
+        _uiState.update {
+            it.copy(safeZoneAreas = it.safeZoneAreas.filterNot { area -> area.id == areaId })
+        }
+    }
+
+    fun addDynamicObjective(
+        type: ObjectiveType,
+        description: String,
+        position: LatLng,
+        targetTeam: String?
+    ): DynamicObjective {
+        val objective = DynamicObjective(
+            id = "objective_${System.currentTimeMillis()}",
+            type = type,
+            description = description.trim(),
+            position = position,
+            targetTeam = targetTeam?.trim()?.takeIf { it.isNotBlank() }
+        )
+        _uiState.update { it.copy(dynamicObjectives = it.dynamicObjectives + objective) }
+        return objective
+    }
+
+    fun updateDynamicObjective(objective: DynamicObjective) {
+        _uiState.update {
+            it.copy(
+                dynamicObjectives = it.dynamicObjectives.map { current ->
+                    if (current.id == objective.id) objective else current
+                }
+            )
+        }
+    }
+
+    fun deleteDynamicObjective(objectiveId: String) {
+        _uiState.update {
+            it.copy(dynamicObjectives = it.dynamicObjectives.filterNot { objective -> objective.id == objectiveId })
+        }
     }
 
     fun setMarkerMode(type: MarkerType?) {

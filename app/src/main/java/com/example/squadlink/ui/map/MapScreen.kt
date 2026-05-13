@@ -51,8 +51,13 @@ import kotlinx.coroutines.delay
 import com.example.squadlink.ui.session.GameSessionViewModel
 import androidx.core.graphics.createBitmap
 import com.example.squadlink.R
+import com.example.squadlink.data.FieldRepository
+import com.example.squadlink.data.FirebaseAccountRepository
+import com.example.squadlink.data.FirebaseGameMapRepository
+import com.example.squadlink.data.UserPreferencesRepository
 import com.example.squadlink.geofence.GeofenceManager
 import com.example.squadlink.notifications.NotificationHelper
+import kotlinx.coroutines.launch
 
 private val GridColor = Color(0x2200FF41)
 private val FieldFill = Color(0x1A4CAF50)
@@ -79,6 +84,23 @@ fun MapScreen(
     val ctx = LocalContext.current
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val scope = rememberCoroutineScope()
+    val preferencesRepo = remember(ctx) { UserPreferencesRepository(ctx) }
+    val accountRepo = remember(ctx) { FirebaseAccountRepository(preferencesRepo) }
+    val gameMapRepo = remember { FirebaseGameMapRepository() }
+    val currentProfile by accountRepo.observeCurrentProfile().collectAsState(initial = null)
+    val activeGame by gameMapRepo
+        .observeGame(sessionState.activeGameCode)
+        .collectAsState(initial = null)
+    val teamAliases = remember(currentProfile?.squadName, currentProfile?.squadCode) {
+        listOf(currentProfile?.squadName, currentProfile?.squadCode)
+            .mapNotNull { it?.trim()?.takeIf(String::isNotBlank) }
+            .map { it.lowercase() }
+    }
+    val currentTeamLabel = remember(currentProfile?.squadCode, currentProfile?.squadName) {
+        currentProfile?.squadCode?.takeIf { it.isNotBlank() }
+            ?: currentProfile?.squadName.orEmpty()
+    }
 
     val mapStyle = remember {
         runCatching {
@@ -96,9 +118,39 @@ fun MapScreen(
     var mapLoaded by remember { mutableStateOf(false) }
     var showMapError by remember { mutableStateOf(false) }
     var customMarkerLabel by remember { mutableStateOf("") }
+    var objectiveMenuPosition by remember { mutableStateOf<LatLng?>(null) }
+    var selectedObjective by remember { mutableStateOf<DynamicObjective?>(null) }
+    var selectedTacticalMarker by remember { mutableStateOf<TacticalMarker?>(null) }
+    var objectiveEditorPosition by remember { mutableStateOf<LatLng?>(null) }
+    var objectiveEditorTarget by remember { mutableStateOf<DynamicObjective?>(null) }
     val mapLocked = sessionState.activeGameCode.isNotBlank()
     val markerMode = mapState.markerMode
     var markerCount by remember { mutableStateOf(0) }
+    var knownObjectiveIds by remember(sessionState.activeGameCode) { mutableStateOf<Set<String>>(emptySet()) }
+    var objectiveNotificationsReady by remember(sessionState.activeGameCode) { mutableStateOf(false) }
+    val visibleTacticalMarkers = remember(
+        mapState.tacticalMarkers,
+        sessionState.isGameMaster,
+        teamAliases
+    ) {
+        mapState.tacticalMarkers.filter { marker ->
+            sessionState.isGameMaster || marker.ownerTeam.isBlank() || marker.ownerTeam.lowercase() in teamAliases
+        }
+    }
+    val visibleDynamicObjectives = remember(
+        mapState.dynamicObjectives,
+        sessionState.isGameMaster,
+        teamAliases
+    ) {
+        mapState.dynamicObjectives.filter { objective ->
+            sessionState.isGameMaster || objective.targetTeam.isNullOrBlank() ||
+                objective.targetTeam.lowercase() in teamAliases
+        }
+    }
+    val displayMapState = mapState.copy(
+        tacticalMarkers = visibleTacticalMarkers,
+        dynamicObjectives = visibleDynamicObjectives
+    )
 
     LaunchedEffect(locationPermissionState.hasPermission, requestedLocationPermission) {
         if (!locationPermissionState.hasPermission && !requestedLocationPermission) {
@@ -107,8 +159,41 @@ fun MapScreen(
         }
     }
 
+    LaunchedEffect(sessionState.activeGameCode) {
+        val activeGameCode = sessionState.activeGameCode
+        if (activeGameCode.isBlank()) {
+            mapVm.onTacticalMarkersUpdated(emptyList())
+            return@LaunchedEffect
+        }
+        gameMapRepo.observeTacticalMarkers(activeGameCode).collect { markers ->
+            mapVm.onTacticalMarkersUpdated(markers)
+        }
+    }
+
+    LaunchedEffect(sessionState.activeGameCode) {
+        val activeGameCode = sessionState.activeGameCode
+        if (activeGameCode.isBlank()) {
+            mapVm.onDynamicObjectivesUpdated(emptyList())
+            return@LaunchedEffect
+        }
+        gameMapRepo.observeDynamicObjectives(activeGameCode).collect { objectives ->
+            mapVm.onDynamicObjectivesUpdated(objectives)
+        }
+    }
+
     val currentFieldId = field?.id
     val selectedFieldId = selectedField?.id
+    val activeGameFieldId = activeGame?.fieldId
+    LaunchedEffect(activeGameFieldId, currentFieldId) {
+        val gameFieldId = activeGameFieldId ?: return@LaunchedEffect
+        if (gameFieldId != currentFieldId) {
+            FieldRepository.fields.firstOrNull { it.id == gameFieldId }?.let { gameField ->
+                mapVm.onFieldLoaded(gameField)
+                showFieldPicker = false
+            }
+        }
+    }
+
     LaunchedEffect(selectedFieldId, currentFieldId) {
         if (selectedField != null && selectedField.id != currentFieldId) {
             mapVm.onFieldLoaded(selectedField)
@@ -133,8 +218,8 @@ fun MapScreen(
         backgroundLocationPermission.hasPermission
 
     LaunchedEffect(shouldArmGeofence, field?.id) {
-        if (shouldArmGeofence && field != null) {
-            geofenceManager.registerFieldGeofence(field)
+        if (shouldArmGeofence) {
+            field?.let { geofenceManager.registerFieldGeofence(it) }
         } else {
             geofenceManager.clearGeofences()
         }
@@ -152,6 +237,26 @@ fun MapScreen(
             }
         }
         markerCount = mapState.tacticalMarkers.size
+    }
+
+    LaunchedEffect(visibleDynamicObjectives, sessionState.activeGameCode, sessionState.isGameMaster) {
+        val visibleIds = visibleDynamicObjectives.map { it.id }.toSet()
+        if (sessionState.activeGameCode.isNotBlank() && !sessionState.isGameMaster) {
+            if (objectiveNotificationsReady) {
+                visibleDynamicObjectives
+                    .filter { it.id !in knownObjectiveIds }
+                    .forEachIndexed { index, objective ->
+                        notificationHelper.notifyTactical(
+                            id = 4000 + index + visibleDynamicObjectives.size,
+                            title = "Nuevo objetivo: ${objective.type.label}",
+                            message = objective.description.ifBlank { "Revisa el mapa tactico." }
+                        )
+                    }
+            } else {
+                objectiveNotificationsReady = true
+            }
+        }
+        knownObjectiveIds = visibleIds
     }
 
     if (field == null) {
@@ -187,7 +292,7 @@ fun MapScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         if (isLandscape) {
             LandscapeMapLayout(
-                state = mapState,
+                state = displayMapState,
                 cameraState = cameraState,
                 mapStyle = mapStyle,
                 field = field,
@@ -199,13 +304,41 @@ fun MapScreen(
                 onMapClick = { latLng ->
                     val mode = markerMode ?: return@LandscapeMapLayout
                     val label = markerLabelFor(mode, customMarkerLabel)
-                    mapVm.addTacticalMarker(mode, latLng, label)
+                    val marker = mapVm.addTacticalMarker(
+                        type = mode,
+                        position = latLng,
+                        label = label,
+                        ownerName = sessionState.suggestedPlayerName,
+                        ownerTeam = if (sessionState.isGameMaster) "" else currentTeamLabel
+                    )
                     mapVm.setMarkerMode(null)
+                    if (sessionState.activeGameCode.isNotBlank()) {
+                        scope.launch {
+                            gameMapRepo.upsertTacticalMarker(sessionState.activeGameCode, marker)
+                        }
+                    }
+                },
+                onMapLongClick = { latLng ->
+                    if (sessionState.activeGameCode.isNotBlank()) {
+                        objectiveMenuPosition = latLng
+                        selectedObjective = null
+                        selectedTacticalMarker = null
+                    }
+                },
+                onTacticalMarkerClick = { marker ->
+                    selectedTacticalMarker = marker
+                    selectedObjective = null
+                    objectiveMenuPosition = null
+                },
+                onDynamicObjectiveClick = { objective ->
+                    selectedObjective = objective
+                    selectedTacticalMarker = null
+                    objectiveMenuPosition = null
                 }
             )
         } else {
             PortraitMapLayout(
-                state = mapState,
+                state = displayMapState,
                 cameraState = cameraState,
                 mapStyle = mapStyle,
                 field = field,
@@ -217,8 +350,36 @@ fun MapScreen(
                 onMapClick = { latLng ->
                     val mode = markerMode ?: return@PortraitMapLayout
                     val label = markerLabelFor(mode, customMarkerLabel)
-                    mapVm.addTacticalMarker(mode, latLng, label)
+                    val marker = mapVm.addTacticalMarker(
+                        type = mode,
+                        position = latLng,
+                        label = label,
+                        ownerName = sessionState.suggestedPlayerName,
+                        ownerTeam = if (sessionState.isGameMaster) "" else currentTeamLabel
+                    )
                     mapVm.setMarkerMode(null)
+                    if (sessionState.activeGameCode.isNotBlank()) {
+                        scope.launch {
+                            gameMapRepo.upsertTacticalMarker(sessionState.activeGameCode, marker)
+                        }
+                    }
+                },
+                onMapLongClick = { latLng ->
+                    if (sessionState.activeGameCode.isNotBlank()) {
+                        objectiveMenuPosition = latLng
+                        selectedObjective = null
+                        selectedTacticalMarker = null
+                    }
+                },
+                onTacticalMarkerClick = { marker ->
+                    selectedTacticalMarker = marker
+                    selectedObjective = null
+                    objectiveMenuPosition = null
+                },
+                onDynamicObjectiveClick = { objective ->
+                    selectedObjective = objective
+                    selectedTacticalMarker = null
+                    objectiveMenuPosition = null
                 }
             )
         }
@@ -281,6 +442,113 @@ fun MapScreen(
                 customLabel = customMarkerLabel,
                 onCustomLabelChange = { customMarkerLabel = it },
                 onSelectMode = { mapVm.setMarkerMode(it) }
+            )
+        }
+
+        objectiveMenuPosition?.let { position ->
+            ObjectiveMapActionCard(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
+                isGameMaster = sessionState.isGameMaster,
+                onAddObjective = {
+                    objectiveEditorPosition = position
+                    objectiveEditorTarget = null
+                    objectiveMenuPosition = null
+                },
+                onAddMarker = {
+                    mapVm.setMarkerMode(com.example.squadlink.ui.map.MarkerType.CUSTOM)
+
+                    val marker = mapVm.addTacticalMarker(
+                        type = com.example.squadlink.ui.map.MarkerType.CUSTOM,
+                        position = position,
+                        label = markerLabelFor(com.example.squadlink.ui.map.MarkerType.CUSTOM, customMarkerLabel),
+                        ownerName = sessionState.suggestedPlayerName,
+                        ownerTeam = if (sessionState.isGameMaster) "" else currentTeamLabel
+                    )
+                    if (sessionState.activeGameCode.isNotBlank()) {
+                        scope.launch {
+                            gameMapRepo.upsertTacticalMarker(sessionState.activeGameCode, marker)
+                        }
+                    }
+                    objectiveMenuPosition = null
+                },
+                onDismiss = { objectiveMenuPosition = null }
+            )
+        }
+
+        selectedObjective?.let { objective ->
+            if (sessionState.isGameMaster) {
+                DynamicObjectiveActionCard(
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
+                    objective = objective,
+                    onEdit = {
+                        objectiveEditorTarget = objective
+                        objectiveEditorPosition = objective.position
+                        selectedObjective = null
+                    },
+                    onDelete = {
+                        mapVm.deleteDynamicObjective(objective.id)
+                        if (sessionState.activeGameCode.isNotBlank()) {
+                            scope.launch {
+                                gameMapRepo.deleteDynamicObjective(sessionState.activeGameCode, objective.id)
+                            }
+                        }
+                        selectedObjective = null
+                    },
+                    onDismiss = { selectedObjective = null }
+                )
+            }
+        }
+
+        selectedTacticalMarker?.let { marker ->
+            TacticalMarkerActionCard(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
+                marker = marker,
+                canDelete = canManageTacticalMarker(marker, sessionState.isGameMaster, teamAliases),
+                onDelete = {
+                    mapVm.deleteTacticalMarker(marker.id)
+                    if (sessionState.activeGameCode.isNotBlank()) {
+                        scope.launch {
+                            gameMapRepo.deleteTacticalMarker(sessionState.activeGameCode, marker.id)
+                        }
+                    }
+                    selectedTacticalMarker = null
+                },
+                onDismiss = { selectedTacticalMarker = null }
+            )
+        }
+
+        if (objectiveEditorPosition != null) {
+            ObjectiveEditorDialog(
+                objective = objectiveEditorTarget,
+                position = objectiveEditorPosition!!,
+                onDismiss = {
+                    objectiveEditorPosition = null
+                    objectiveEditorTarget = null
+                },
+                onSave = { type, description, targetTeam ->
+                    val existing = objectiveEditorTarget
+                    val objective = if (existing == null) {
+                        mapVm.addDynamicObjective(
+                            type = type,
+                            description = description,
+                            position = objectiveEditorPosition!!,
+                            targetTeam = targetTeam
+                        )
+                    } else {
+                        existing.copy(
+                            type = type,
+                            description = description.trim(),
+                            targetTeam = targetTeam?.trim()?.takeIf { it.isNotBlank() }
+                        ).also(mapVm::updateDynamicObjective)
+                    }
+                    if (sessionState.activeGameCode.isNotBlank()) {
+                        scope.launch {
+                            gameMapRepo.upsertDynamicObjective(sessionState.activeGameCode, objective)
+                        }
+                    }
+                    objectiveEditorPosition = null
+                    objectiveEditorTarget = null
+                }
             )
         }
 
@@ -409,7 +677,10 @@ private fun PortraitMapLayout(
     onToggleGrid: () -> Unit,
     onDismissAlert: () -> Unit,
     onMapLoaded: () -> Unit,
-    onMapClick: (LatLng) -> Unit
+    onMapClick: (LatLng) -> Unit,
+    onMapLongClick: (LatLng) -> Unit,
+    onTacticalMarkerClick: (TacticalMarker) -> Unit,
+    onDynamicObjectiveClick: (DynamicObjective) -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         TacticalGoogleMap(
@@ -421,7 +692,10 @@ private fun PortraitMapLayout(
             hasLocationPermission = hasLocationPermission,
             mapLoaded = mapLoaded,
             onMapLoaded = onMapLoaded,
-            onMapClick = onMapClick
+            onMapClick = onMapClick,
+            onMapLongClick = onMapLongClick,
+            onTacticalMarkerClick = onTacticalMarkerClick,
+            onDynamicObjectiveClick = onDynamicObjectiveClick
         )
         if (state.gridVisible) Canvas(Modifier.fillMaxSize()) { drawTacticalGrid(this) }
         MapHud(
@@ -451,7 +725,10 @@ private fun LandscapeMapLayout(
     onToggleGrid: () -> Unit,
     onDismissAlert: () -> Unit,
     onMapLoaded: () -> Unit,
-    onMapClick: (LatLng) -> Unit
+    onMapClick: (LatLng) -> Unit,
+    onMapLongClick: (LatLng) -> Unit,
+    onTacticalMarkerClick: (TacticalMarker) -> Unit,
+    onDynamicObjectiveClick: (DynamicObjective) -> Unit
 ) {
     Row(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
@@ -464,7 +741,10 @@ private fun LandscapeMapLayout(
                 hasLocationPermission = hasLocationPermission,
                 mapLoaded = mapLoaded,
                 onMapLoaded = onMapLoaded,
-                onMapClick = onMapClick
+                onMapClick = onMapClick,
+                onMapLongClick = onMapLongClick,
+                onTacticalMarkerClick = onTacticalMarkerClick,
+                onDynamicObjectiveClick = onDynamicObjectiveClick
             )
             if (state.gridVisible) Canvas(Modifier.fillMaxSize()) { drawTacticalGrid(this) }
             androidx.compose.animation.AnimatedVisibility(
@@ -512,7 +792,10 @@ private fun TacticalGoogleMap(
     hasLocationPermission: Boolean,
     mapLoaded: Boolean,
     onMapLoaded: () -> Unit,
-    onMapClick: (LatLng) -> Unit
+    onMapClick: (LatLng) -> Unit,
+    onMapLongClick: (LatLng) -> Unit,
+    onTacticalMarkerClick: (TacticalMarker) -> Unit,
+    onDynamicObjectiveClick: (DynamicObjective) -> Unit
 ) {
     val tacticalIcons: Map<String, BitmapDescriptor> =
         if (mapLoaded) rememberTacticalMarkerIcons() else emptyMap()
@@ -530,7 +813,8 @@ private fun TacticalGoogleMap(
             mapToolbarEnabled = false
         ),
         onMapLoaded = onMapLoaded,
-        onMapClick = onMapClick
+        onMapClick = onMapClick,
+        onMapLongClick = onMapLongClick
     ) {
         field.perimeter.forEach { poly ->
             Polygon(
@@ -554,7 +838,26 @@ private fun TacticalGoogleMap(
             Marker(
                 state = MarkerState(position = marker.position),
                 title = marker.label,
-                icon = tacticalIcons[marker.type.name.lowercase()]
+                icon = tacticalIcons[marker.type.name.lowercase()],
+                onClick = {
+                    onTacticalMarkerClick(marker)
+                    true
+                },
+                onInfoWindowLongClick = { onTacticalMarkerClick(marker) }
+            )
+        }
+
+        state.dynamicObjectives.forEach { objective ->
+            Marker(
+                state = MarkerState(position = objective.position),
+                title = objectiveTitle(objective),
+                snippet = objective.description,
+                icon = tacticalIcons["dynamic_objective"],
+                onClick = {
+                    onDynamicObjectiveClick(objective)
+                    true
+                },
+                onInfoWindowLongClick = { onDynamicObjectiveClick(objective) }
             )
         }
     }
@@ -667,6 +970,233 @@ private fun MapLoadErrorCard(modifier: Modifier, onRetry: () -> Unit) {
 }
 
 @Composable
+private fun ObjectiveMapActionCard(
+    modifier: Modifier,
+    isGameMaster: Boolean,
+    onAddObjective: () -> Unit,
+    onAddMarker: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xEE101810)),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                "Punto seleccionado",
+                modifier = Modifier.weight(1f),
+                color = Color.White,
+                style = MaterialTheme.typography.bodySmall
+            )
+            if (isGameMaster) {
+                TextButton(onClick = onAddObjective) {
+                    Text("Objetivo dinamico")
+                }
+            }
+            TextButton(onClick = onAddMarker) {
+                Text(if (isGameMaster) "Marcador" else "Añadir marcador")
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DynamicObjectiveActionCard(
+    modifier: Modifier,
+    objective: DynamicObjective,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xEE101810)),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(objectiveTitle(objective), color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        objective.description.ifBlank { "Sin descripcion" },
+                        color = Color.LightGray,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White)
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onEdit) {
+                    Text("Modificar objetivo dinamico")
+                }
+                Button(
+                    onClick = onDelete,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Eliminar")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TacticalMarkerActionCard(
+    modifier: Modifier,
+    marker: TacticalMarker,
+    canDelete: Boolean,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xEE101810)),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(marker.label, color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                if (marker.ownerTeam.isNotBlank()) {
+                    Text(
+                        "Equipo: ${marker.ownerTeam}",
+                        color = Color.LightGray,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+            if (canDelete) {
+                Button(
+                    onClick = onDelete,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Eliminar")
+                }
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ObjectiveEditorDialog(
+    objective: DynamicObjective?,
+    position: LatLng,
+    onDismiss: () -> Unit,
+    onSave: (ObjectiveType, String, String?) -> Unit
+) {
+    var type by remember(objective?.id) { mutableStateOf(objective?.type ?: ObjectiveType.FLAG) }
+    var description by remember(objective?.id) { mutableStateOf(objective?.description.orEmpty()) }
+    var targetOnlyOneTeam by remember(objective?.id) { mutableStateOf(!objective?.targetTeam.isNullOrBlank()) }
+    var targetTeam by remember(objective?.id) { mutableStateOf(objective?.targetTeam.orEmpty()) }
+    var typeMenuExpanded by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(if (objective == null) "Nuevo objetivo dinamico" else "Modificar objetivo")
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box {
+                    OutlinedButton(onClick = { typeMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text(type.label)
+                    }
+                    DropdownMenu(
+                        expanded = typeMenuExpanded,
+                        onDismissRequest = { typeMenuExpanded = false }
+                    ) {
+                        ObjectiveType.entries.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option.label) },
+                                onClick = {
+                                    type = option
+                                    typeMenuExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Descripcion") },
+                    minLines = 3,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Solo a un equipo", modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = targetOnlyOneTeam,
+                        onCheckedChange = { checked ->
+                            targetOnlyOneTeam = checked
+                            if (!checked) targetTeam = ""
+                        }
+                    )
+                }
+
+                if (targetOnlyOneTeam) {
+                    OutlinedTextField(
+                        value = targetTeam,
+                        onValueChange = { targetTeam = it },
+                        label = { Text("Nombre o codigo del equipo") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Text(
+                    "Posicion: %.5f, %.5f".format(position.latitude, position.longitude),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onSave(
+                        type,
+                        description,
+                        if (targetOnlyOneTeam) targetTeam else null
+                    )
+                },
+                enabled = description.isNotBlank() && (!targetOnlyOneTeam || targetTeam.isNotBlank())
+            ) {
+                Text("Guardar")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancelar")
+            }
+        }
+    )
+}
+
+@Composable
 private fun MarkerPlacementHint(modifier: Modifier, label: String) {
     Card(
         modifier = modifier,
@@ -764,6 +1294,7 @@ private fun rememberTacticalMarkerIcons(): Map<String, BitmapDescriptor> {
             "enemy" to createNatoMarkerIcon(NatoShape.DIAMOND, NatoRed, NatoDark, "EN"),
             "enemy_heavy" to createNatoMarkerIcon(NatoShape.DIAMOND, NatoDarkRed, NatoDark, "HV"),
             "contact" to createNatoMarkerIcon(NatoShape.TRIANGLE, NatoYellow, NatoDark, "CT"),
+            "dynamic_objective" to createNatoMarkerIcon(NatoShape.CIRCLE, NatoBlue, NatoDark, "DYN"),
             "custom" to createNatoMarkerIcon(NatoShape.CIRCLE, Color.White, NatoDark, "MK")
         )
     }
@@ -865,6 +1396,21 @@ private fun markerToolLabel(mode: com.example.squadlink.ui.map.MarkerType): Stri
     com.example.squadlink.ui.map.MarkerType.ENEMY_HEAVY -> "Alta presencia"
     com.example.squadlink.ui.map.MarkerType.CONTACT -> "Contacto"
     com.example.squadlink.ui.map.MarkerType.CUSTOM -> "Personal"
+}
+
+private fun objectiveTitle(objective: DynamicObjective): String {
+    val target = objective.targetTeam?.let { " - $it" } ?: " - todos"
+    return "${objective.type.label}$target"
+}
+
+private fun canManageTacticalMarker(
+    marker: TacticalMarker,
+    isGameMaster: Boolean,
+    teamAliases: List<String>
+): Boolean {
+    return isGameMaster ||
+        (marker.ownerTeam.isNotBlank() && marker.ownerTeam.lowercase() in teamAliases) ||
+        (marker.ownerTeam.isBlank() && teamAliases.isEmpty())
 }
 
 private fun markerToolsForRole(isGm: Boolean): List<com.example.squadlink.ui.map.MarkerType> {

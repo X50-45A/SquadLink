@@ -7,6 +7,8 @@ import com.example.squadlink.data.UserPreferencesRepository
 import com.example.squadlink.notifications.NotificationHelper
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingEvent
+import android.media.RingtoneManager
+import android.net.Uri
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -25,16 +27,50 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 val isGameMaster = repo.isGameMaster.first()
                 if (activeGame.isBlank() || isGameMaster) return@launch
 
-                if (event.geofenceTransition == Geofence.GEOFENCE_TRANSITION_EXIT) {
-                    NotificationHelper(context).notifyTactical(
-                        id = 2001,
-                        title = "Fuera del campo",
-                        message = "Has salido del area de juego"
-                    )
+                event.triggeringGeofences?.forEach { geofence ->
+                    when {
+                        geofence.requestId.startsWith("FIELD_") -> {
+                            if (event.geofenceTransition == Geofence.GEOFENCE_TRANSITION_EXIT) {
+                                NotificationHelper(context).notifyTactical(
+                                    id = 2001,
+                                    title = "Fuera del campo",
+                                    message = "Has salido del area de juego"
+                                )
+                            }
+                        }
+                        geofence.requestId.startsWith("SAFEZONE_") -> {
+                            val title: String
+                            val message: String
+                            if (event.geofenceTransition == Geofence.GEOFENCE_TRANSITION_ENTER) {
+                                title = "Zona Segura"
+                                message = "Has entrado en una zona segura"
+                                playSafeZoneSound(context)
+                            } else {
+                                title = "Zona de Combate"
+                                message = "Has salido de la zona segura"
+                                playSafeZoneSound(context)
+                            }
+                            NotificationHelper(context).notifyTactical(
+                                id = 2100 + geofence.requestId.hashCode(),
+                                title = title,
+                                message = message
+                            )
+                        }
+                    }
                 }
             } finally {
                 pending.finish()
             }
+        }
+    }
+
+    private fun playSafeZoneSound(context: Context) {
+        try {
+            val notification: Uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val r = RingtoneManager.getRingtone(context, notification)
+            r.play()
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 }

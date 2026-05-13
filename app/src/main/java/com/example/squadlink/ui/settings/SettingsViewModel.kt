@@ -11,10 +11,10 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class SettingsUiState(
-    val darkTheme: Boolean     = false,
-    val playerName: String     = "",
-    val showGrid: Boolean      = true,
-    val keepScreenOn: Boolean  = true
+    val darkTheme: Boolean = false,
+    val showGrid: Boolean = true,
+    val keepScreenOn: Boolean = true,
+    val syncWifiOnly: Boolean = false
 )
 
 class SettingsViewModel(
@@ -23,11 +23,16 @@ class SettingsViewModel(
 
     val uiState: StateFlow<SettingsUiState> = combine(
         repo.darkTheme,
-        repo.playerName,
         repo.showGrid,
-        repo.keepScreenOn
-    ) { darkTheme, playerName, showGrid, keepScreenOn ->
-        SettingsUiState(darkTheme, playerName, showGrid, keepScreenOn)
+        repo.keepScreenOn,
+        repo.syncWifiOnly
+    ) { darkTheme, showGrid, keepScreenOn, wifiOnly ->
+        SettingsUiState(
+            darkTheme = darkTheme,
+            showGrid = showGrid,
+            keepScreenOn = keepScreenOn,
+            syncWifiOnly = wifiOnly
+        )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -37,14 +42,14 @@ class SettingsViewModel(
     fun setDarkTheme(enabled: Boolean) =
         viewModelScope.launch { repo.setDarkTheme(enabled) }
 
-    fun setPlayerName(name: String) =
-        viewModelScope.launch { repo.setPlayerName(name) }
-
     fun setShowGrid(enabled: Boolean) =
         viewModelScope.launch { repo.setShowGrid(enabled) }
 
     fun setKeepScreenOn(enabled: Boolean) =
         viewModelScope.launch { repo.setKeepScreenOn(enabled) }
+
+    fun setSyncWifiOnly(enabled: Boolean) = 
+        viewModelScope.launch { repo.setSyncWifiOnly(enabled) }
 
     class Factory(private val repo: UserPreferencesRepository) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
