@@ -82,6 +82,15 @@ fun SettingsScreen(
                 checked = state.keepScreenOn,
                 onCheckedChange = vm::setKeepScreenOn
             )
+
+            PreferenceSectionHeader("Conectividad")
+
+            PreferenceRow(
+                title = "Sincronizar solo con Wi-Fi",
+                subtitle = "Ahorra datos moviles durante la partida",
+                checked = state.syncWifiOnly,
+                onCheckedChange = vm::setSyncWifiOnly
+            )
         }
     }
 }
