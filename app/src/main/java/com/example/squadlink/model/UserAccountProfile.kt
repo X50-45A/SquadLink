@@ -9,5 +9,6 @@ data class UserAccountProfile(
     val squadId: String = "",
     val squadName: String = "",
     val squadCode: String = "",
-    val squadRole: SquadRole = SquadRole.RIFLEMAN
+    val squadRole: SquadRole = SquadRole.RIFLEMAN,
+    val photoUrl: String = ""
 )

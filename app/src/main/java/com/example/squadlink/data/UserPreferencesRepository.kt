@@ -26,6 +26,7 @@ class UserPreferencesRepository(private val context: Context) {
         val KEY_IS_GM          = booleanPreferencesKey("is_game_master")
         val KEY_ACTIVE_USER    = stringPreferencesKey("active_user_name")
         val KEY_ACTIVE_EMAIL   = stringPreferencesKey("active_user_email")
+        val KEY_SYNC_WIFI_ONLY = booleanPreferencesKey("sync_wifi_only")
     }
 
     val darkTheme: Flow<Boolean> = context.dataStore.data
@@ -54,6 +55,9 @@ class UserPreferencesRepository(private val context: Context) {
 
     val activeUserEmail: Flow<String> = context.dataStore.data
         .map { prefs -> prefs[KEY_ACTIVE_EMAIL] ?: "" }
+
+    val syncWifiOnly: Flow<Boolean> = context.dataStore.data
+        .map { prefs -> prefs[KEY_SYNC_WIFI_ONLY] ?: false }
 
     suspend fun setDarkTheme(enabled: Boolean) {
         context.dataStore.edit { it[KEY_DARK_THEME] = enabled }
@@ -101,6 +105,10 @@ class UserPreferencesRepository(private val context: Context) {
 
     suspend fun setActiveUserEmail(email: String) {
         context.dataStore.edit { it[KEY_ACTIVE_EMAIL] = email }
+    }
+
+    suspend fun setSyncWifiOnly(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_SYNC_WIFI_ONLY] = enabled }
     }
 
     suspend fun clearSession() {
