@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.example.squadlink.model.AirsoftField
+import com.example.squadlink.ui.map.SafeZoneArea
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingClient
 import com.google.android.gms.location.GeofencingRequest
@@ -33,19 +34,34 @@ class GeofenceManager(private val context: Context) {
             .coerceAtMost(3000.0)
 
         val geofence = Geofence.Builder()
-            .setRequestId(field.id)
+            .setRequestId("FIELD_${field.id}")
             .setCircularRegion(field.center.latitude, field.center.longitude, radius.toFloat())
             .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_EXIT or Geofence.GEOFENCE_TRANSITION_ENTER)
             .setExpirationDuration(Geofence.NEVER_EXPIRE)
             .build()
 
+        addGeofence(geofence)
+    }
+
+    fun registerSafeZoneGeofence(area: SafeZoneArea) {
+        val geofence = Geofence.Builder()
+            .setRequestId("SAFEZONE_${area.id}")
+            .setCircularRegion(area.center.latitude, area.center.longitude, area.radius)
+            .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_EXIT)
+            .setExpirationDuration(Geofence.NEVER_EXPIRE)
+            .build()
+        
+        addGeofence(geofence)
+    }
+
+    private fun addGeofence(geofence: Geofence) {
         val request = GeofencingRequest.Builder()
             .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)
             .addGeofence(geofence)
             .build()
 
         geofencingClient.addGeofences(request, pendingIntent)
-            .addOnSuccessListener { Log.d("GeofenceManager", "Geofence registered") }
+            .addOnSuccessListener { Log.d("GeofenceManager", "Geofence ${geofence.requestId} registered") }
             .addOnFailureListener { Log.e("GeofenceManager", "Geofence failed: ${it.message}") }
     }
 

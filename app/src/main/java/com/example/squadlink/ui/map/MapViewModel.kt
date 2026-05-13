@@ -28,6 +28,14 @@ data class TacticalMarker(
     val ownerTeam: String = ""
 )
 
+data class SafeZoneArea(
+    val id: String,
+    val name: String,
+    val center: LatLng,
+    val radius: Float,
+    val points: List<LatLng> = emptyList()
+)
+
 enum class MarkerType { OBJECTIVE, SAFE_ZONE, DANGER, ENEMY, ENEMY_HEAVY, CONTACT, CUSTOM }
 
 data class DynamicObjective(
@@ -57,6 +65,7 @@ data class MapUiState(
     val field: AirsoftField? = null,
     val players: List<PlayerMarker> = emptyList(),
     val tacticalMarkers: List<TacticalMarker> = emptyList(),
+    val safeZoneAreas: List<SafeZoneArea> = emptyList(),
     val dynamicObjectives: List<DynamicObjective> = emptyList(),
     val markerMode: MarkerType? = null,
     val currentPlayerOutOfBounds: Boolean = false,
@@ -85,6 +94,10 @@ class MapViewModel : ViewModel() {
         _uiState.update { it.copy(tacticalMarkers = markers) }
     }
 
+    fun onSafeZoneAreasUpdated(areas: List<SafeZoneArea>) {
+        _uiState.update { it.copy(safeZoneAreas = areas) }
+    }
+
     fun onDynamicObjectivesUpdated(objectives: List<DynamicObjective>) {
         _uiState.update { it.copy(dynamicObjectives = objectives) }
     }
@@ -104,7 +117,8 @@ class MapViewModel : ViewModel() {
                 dynamicObjectives = emptyList(),
                 markerMode = null,
                 showOutOfBoundsAlert = false,
-                currentPlayerOutOfBounds = false
+                currentPlayerOutOfBounds = false,
+                safeZoneAreas = emptyList()
             )
         }
     }
@@ -183,6 +197,29 @@ class MapViewModel : ViewModel() {
     fun deleteTacticalMarker(markerId: String) {
         _uiState.update {
             it.copy(tacticalMarkers = it.tacticalMarkers.filterNot { marker -> marker.id == markerId })
+        }
+    }
+
+    fun addSafeZoneArea(
+        name: String,
+        center: LatLng,
+        radius: Float,
+        points: List<LatLng>
+    ): SafeZoneArea {
+        val area = SafeZoneArea(
+            id = "safezone_${System.currentTimeMillis()}",
+            name = name,
+            center = center,
+            radius = radius,
+            points = points
+        )
+        _uiState.update { it.copy(safeZoneAreas = it.safeZoneAreas + area) }
+        return area
+    }
+
+    fun deleteSafeZoneArea(areaId: String) {
+        _uiState.update {
+            it.copy(safeZoneAreas = it.safeZoneAreas.filterNot { area -> area.id == areaId })
         }
     }
 
