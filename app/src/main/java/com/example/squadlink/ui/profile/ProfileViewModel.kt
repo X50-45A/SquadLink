@@ -27,6 +27,7 @@ data class ProfileUiState(
     val activeEmail: String = "",
     val isGameMaster: Boolean = false,
     val callsign: String = "",
+    val profilePhotoUri: String = "",
     val squadName: String = "",
     val squadCode: String = "",
     val squadRole: SquadRole = SquadRole.RIFLEMAN,
@@ -56,6 +57,7 @@ class ProfileViewModel(
             activeEmail = email,
             isGameMaster = gm,
             callsign = profile?.callsign.orEmpty(),
+            profilePhotoUri = profile?.profilePhotoUri.orEmpty(),
             squadName = profile?.squadName.orEmpty(),
             squadCode = profile?.squadCode.orEmpty(),
             squadRole = profile?.squadRole ?: SquadRole.RIFLEMAN
@@ -132,6 +134,18 @@ class ProfileViewModel(
                     callsign = callsign,
                     squadRole = squadRole
                 )
+            } catch (error: Throwable) {
+                viewState.update { it.copy(errorMessage = error.toFriendlyMessage()) }
+            }
+            viewState.update { it.copy(isBusy = false) }
+        }
+    }
+
+    fun updateProfilePhoto(uri: String) {
+        viewModelScope.launch {
+            viewState.update { it.copy(isBusy = true, errorMessage = null) }
+            try {
+                accountRepository.updateProfilePhoto(uri)
             } catch (error: Throwable) {
                 viewState.update { it.copy(errorMessage = error.toFriendlyMessage()) }
             }

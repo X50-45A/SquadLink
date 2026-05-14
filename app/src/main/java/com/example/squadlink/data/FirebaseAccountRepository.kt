@@ -33,6 +33,7 @@ class FirebaseAccountRepository(
         private const val FIELD_EMAIL = "email"
         private const val FIELD_ROLE = "role"
         private const val FIELD_CALLSIGN = "callsign"
+        private const val FIELD_PROFILE_PHOTO_URI = "profilePhotoUri"
         private const val FIELD_SQUAD_ID = "squadId"
         private const val FIELD_SQUAD_NAME = "squadName"
         private const val FIELD_SQUAD_CODE = "squadCode"
@@ -82,6 +83,7 @@ class FirebaseAccountRepository(
             email = normalizedEmail,
             role = AccountRole.PLAYER,
             callsign = normalizedName,
+            profilePhotoUri = "",
             squadRole = SquadRole.RIFLEMAN
         )
         saveProfile(profile, isNewUser = true)
@@ -211,6 +213,15 @@ class FirebaseAccountRepository(
             callsign = callsign.trim(),
             squadRole = squadRole
         )
+        saveProfile(updatedProfile, isNewUser = false)
+        syncLocalProfile(updatedProfile, resetGameCode = false)
+        return updatedProfile
+    }
+
+    suspend fun updateProfilePhoto(uri: String): UserAccountProfile {
+        val currentUser = requireCurrentUser()
+        val currentProfile = fetchOrCreateProfile(currentUser)
+        val updatedProfile = currentProfile.copy(profilePhotoUri = uri.trim())
         saveProfile(updatedProfile, isNewUser = false)
         syncLocalProfile(updatedProfile, resetGameCode = false)
         return updatedProfile
@@ -405,6 +416,7 @@ class FirebaseAccountRepository(
             FIELD_EMAIL to profile.email,
             FIELD_ROLE to profile.role.wireValue,
             FIELD_CALLSIGN to profile.callsign.ifBlank { profile.displayName },
+            FIELD_PROFILE_PHOTO_URI to profile.profilePhotoUri,
             FIELD_SQUAD_ID to profile.squadId,
             FIELD_SQUAD_NAME to profile.squadName,
             FIELD_SQUAD_CODE to profile.squadCode,
@@ -462,6 +474,7 @@ class FirebaseAccountRepository(
             email = firebaseUser.email ?: "",
             role = AccountRole.PLAYER,
             callsign = fallbackName,
+            profilePhotoUri = "",
             squadRole = SquadRole.RIFLEMAN
         )
     }
@@ -540,6 +553,7 @@ class FirebaseAccountRepository(
                 ?.trim()
                 .orEmpty()
                 .ifBlank { getString(FIELD_DISPLAY_NAME)?.trim().orEmpty().ifBlank { fallbackName } },
+            profilePhotoUri = getString(FIELD_PROFILE_PHOTO_URI)?.trim().orEmpty(),
             squadId = getString(FIELD_SQUAD_ID)?.trim().orEmpty(),
             squadName = getString(FIELD_SQUAD_NAME)?.trim().orEmpty(),
             squadCode = getString(FIELD_SQUAD_CODE)?.trim().orEmpty(),
