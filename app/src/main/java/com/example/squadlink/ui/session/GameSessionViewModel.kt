@@ -3,6 +3,7 @@ package com.example.squadlink.ui.session
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.squadlink.data.FirebaseGameMapRepository
 import com.example.squadlink.data.UserPreferencesRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -18,7 +19,8 @@ data class GameSessionUiState(
 )
 
 class GameSessionViewModel(
-    private val repo: UserPreferencesRepository
+    private val repo: UserPreferencesRepository,
+    private val gameMapRepository: FirebaseGameMapRepository = FirebaseGameMapRepository()
 ) : ViewModel() {
 
     val uiState: StateFlow<GameSessionUiState> = combine(
@@ -56,6 +58,10 @@ class GameSessionViewModel(
 
     fun endGame() {
         viewModelScope.launch {
+            val currentCode = uiState.value.activeGameCode
+            if (currentCode.isNotBlank()) {
+                runCatching { gameMapRepository.unsubscribeFromGameTopic(currentCode) }
+            }
             repo.clearActiveGameCode()
             repo.setIsGameMaster(false)
         }

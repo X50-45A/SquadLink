@@ -12,6 +12,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -162,6 +163,7 @@ class FirebaseGameMapRepository(
                 SetOptions.merge()
             )
             .awaitResult()
+        subscribeToGameTopic(normalizedCode)
     }
 
     suspend fun startGame(gameCode: String) {
@@ -215,6 +217,7 @@ class FirebaseGameMapRepository(
                 SetOptions.merge()
             )
             .awaitResult()
+        subscribeToGameTopic(gameCode)
     }
 
     suspend fun expelPlayer(gameCode: String, playerId: String) {
@@ -410,8 +413,25 @@ class FirebaseGameMapRepository(
             .awaitResult()
     }
 
+    suspend fun subscribeToGameTopic(gameCode: String) {
+        if (gameCode.isBlank()) return
+        FirebaseMessaging.getInstance()
+            .subscribeToTopic(topicForGame(gameCode))
+            .awaitResult()
+    }
+
+    suspend fun unsubscribeFromGameTopic(gameCode: String) {
+        if (gameCode.isBlank()) return
+        FirebaseMessaging.getInstance()
+            .unsubscribeFromTopic(topicForGame(gameCode))
+            .awaitResult()
+    }
+
     private fun gameDocument(gameCode: String) =
         firestore.collection(GAMES_COLLECTION).document(gameCode.trim().uppercase())
+
+    private fun topicForGame(gameCode: String): String =
+        "game_${gameCode.trim().uppercase().replace(Regex("[^A-Z0-9_-]"), "_")}"
 
     private suspend fun requireCurrentUser() =
         auth.currentUser ?: error("Necesitas iniciar sesion para realizar esta accion.")

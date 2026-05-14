@@ -119,6 +119,7 @@ fun SquadLinkApp() {
         if (activeGameCode.isBlank() || isGameMaster) return@LaunchedEffect
         gameMapRepo.observeCurrentPlayerStatus(activeGameCode).collect { status ->
             if (status?.expelled == true) {
+                runCatching { gameMapRepo.unsubscribeFromGameTopic(activeGameCode) }
                 repo.clearActiveGameCode()
                 repo.setIsGameMaster(false)
                 navController.navigate(Screen.Home.route) {

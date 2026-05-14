@@ -12,6 +12,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.storage.FirebaseStorage
 import android.net.Uri
 import kotlin.random.Random
@@ -43,6 +44,7 @@ class FirebaseAccountRepository(
         private const val FIELD_JOIN_CODE = "joinCode"
         private const val FIELD_CREATED_BY = "createdBy"
         private const val FIELD_PHOTO_URL = "photoUrl"
+        private const val FIELD_FCM_TOKEN = "fcmToken"
     }
 
     suspend fun restoreSession(): UserAccountProfile? {
@@ -52,6 +54,7 @@ class FirebaseAccountRepository(
         }
 
         val profile = fetchOrCreateProfile(currentUser)
+        syncCurrentFcmToken()
         syncLocalProfile(profile, resetGameCode = false)
         return profile
     }
@@ -62,6 +65,7 @@ class FirebaseAccountRepository(
             .awaitResult()
         val firebaseUser = authResult.user ?: error("No se pudo recuperar el usuario autenticado.")
         val profile = fetchOrCreateProfile(firebaseUser)
+        syncCurrentFcmToken()
         syncLocalProfile(profile, resetGameCode = true)
         return profile
     }
@@ -87,6 +91,7 @@ class FirebaseAccountRepository(
             squadRole = SquadRole.RIFLEMAN
         )
         saveProfile(profile, isNewUser = true)
+        syncCurrentFcmToken()
         syncLocalProfile(profile, resetGameCode = true)
         return profile
     }
@@ -221,7 +226,11 @@ class FirebaseAccountRepository(
     suspend fun updateProfilePhoto(uri: String): UserAccountProfile {
         val currentUser = requireCurrentUser()
         val currentProfile = fetchOrCreateProfile(currentUser)
-        val updatedProfile = currentProfile.copy(profilePhotoUri = uri.trim())
+        val trimmedUri = uri.trim()
+        val updatedProfile = currentProfile.copy(
+            profilePhotoUri = trimmedUri,
+            photoUrl = if (trimmedUri.isBlank()) "" else currentProfile.photoUrl
+        )
         saveProfile(updatedProfile, isNewUser = false)
         syncLocalProfile(updatedProfile, resetGameCode = false)
         return updatedProfile
@@ -375,6 +384,9 @@ class FirebaseAccountRepository(
     }
 
     suspend fun uploadProfilePicture(uri: Uri): String {
+        require(preferencesRepository.canUseNetworkForSync()) {
+            "La sincronizacion esta limitada a Wi-Fi. Conectate a una red Wi-Fi para subir la foto."
+        }
         val currentUser = requireCurrentUser()
         val storageRef = FirebaseStorage.getInstance().reference
             .child("profiles/${currentUser.uid}.jpg")
@@ -384,10 +396,46 @@ class FirebaseAccountRepository(
         
         firestore.collection(USERS_COLLECTION)
             .document(currentUser.uid)
-            .update(FIELD_PHOTO_URL, downloadUrl)
+            .set(
+                mapOf(
+                    FIELD_PHOTO_URL to downloadUrl,
+                    FIELD_PROFILE_PHOTO_URI to "",
+                    FIELD_UPDATED_AT to FieldValue.serverTimestamp()
+                ),
+                SetOptions.merge()
+            )
             .awaitResult()
             
         return downloadUrl
+    }
+
+    suspend fun syncCurrentFcmToken() {
+        val currentUser = auth.currentUser ?: return
+        val token = FirebaseMessaging.getInstance().token.awaitResult()
+        firestore.collection(USERS_COLLECTION)
+            .document(currentUser.uid)
+            .set(
+                mapOf(
+                    FIELD_FCM_TOKEN to token,
+                    FIELD_UPDATED_AT to FieldValue.serverTimestamp()
+                ),
+                SetOptions.merge()
+            )
+            .awaitResult()
+    }
+
+    suspend fun saveFcmToken(token: String) {
+        val currentUser = auth.currentUser ?: return
+        firestore.collection(USERS_COLLECTION)
+            .document(currentUser.uid)
+            .set(
+                mapOf(
+                    FIELD_FCM_TOKEN to token,
+                    FIELD_UPDATED_AT to FieldValue.serverTimestamp()
+                ),
+                SetOptions.merge()
+            )
+            .awaitResult()
     }
 
     private suspend fun fetchOrCreateProfile(firebaseUser: FirebaseUser): UserAccountProfile {
@@ -417,6 +465,7 @@ class FirebaseAccountRepository(
             FIELD_ROLE to profile.role.wireValue,
             FIELD_CALLSIGN to profile.callsign.ifBlank { profile.displayName },
             FIELD_PROFILE_PHOTO_URI to profile.profilePhotoUri,
+            FIELD_PHOTO_URL to profile.photoUrl,
             FIELD_SQUAD_ID to profile.squadId,
             FIELD_SQUAD_NAME to profile.squadName,
             FIELD_SQUAD_CODE to profile.squadCode,

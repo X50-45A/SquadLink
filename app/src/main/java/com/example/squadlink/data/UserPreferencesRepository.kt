@@ -8,7 +8,9 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import com.example.squadlink.util.isConnectedToWifi
 
 
 
@@ -109,6 +111,10 @@ class UserPreferencesRepository(private val context: Context) {
 
     suspend fun setSyncWifiOnly(enabled: Boolean) {
         context.dataStore.edit { it[KEY_SYNC_WIFI_ONLY] = enabled }
+    }
+
+    suspend fun canUseNetworkForSync(): Boolean {
+        return !syncWifiOnly.first() || context.isConnectedToWifi()
     }
 
     suspend fun clearSession() {

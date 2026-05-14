@@ -1,8 +1,10 @@
-package com.example.squadlink.ui.screens
+﻿package com.example.squadlink.ui.screens
 
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.net.Uri
+import java.net.URL
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -71,7 +73,7 @@ fun ProfileScreen(
                 uri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
-            vm.updateProfilePhoto(uri.toString())
+            vm.uploadProfilePhoto(uri)
         }
     }
 
@@ -128,7 +130,7 @@ fun ProfileScreen(
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 ProfilePhoto(
-                    uri = state.profilePhotoUri,
+                    uri = state.photoUrl.ifBlank { state.profilePhotoUri },
                     fallback = state.callsign.ifBlank { state.activeUser },
                     modifier = Modifier.size(96.dp)
                 )
@@ -137,9 +139,9 @@ fun ProfileScreen(
                         onClick = { photoPicker.launch(arrayOf("image/*")) },
                         enabled = !state.isBusy
                     ) {
-                        Text(if (state.profilePhotoUri.isBlank()) "Añadir foto" else "Cambiar foto")
+                        Text(if (state.photoUrl.isBlank() && state.profilePhotoUri.isBlank()) "Añadir foto" else "Cambiar foto")
                     }
-                    if (state.profilePhotoUri.isNotBlank()) {
+                    if (state.photoUrl.isNotBlank() || state.profilePhotoUri.isNotBlank()) {
                         OutlinedButton(
                             onClick = { vm.updateProfilePhoto("") },
                             enabled = !state.isBusy
@@ -262,6 +264,10 @@ private fun ProfilePhoto(
         value = runCatching {
             if (uri.isBlank()) {
                 null
+            } else if (uri.startsWith("http://") || uri.startsWith("https://")) {
+                URL(uri).openStream().use { stream ->
+                    BitmapFactory.decodeStream(stream).asImageBitmap()
+                }
             } else {
                 val source = ImageDecoder.createSource(context.contentResolver, Uri.parse(uri))
                 ImageDecoder.decodeBitmap(source).asImageBitmap()
@@ -300,3 +306,4 @@ private fun initialsFor(value: String): String {
         .joinToString("") { it.first().uppercase() }
         .ifBlank { "SL" }
 }
+
