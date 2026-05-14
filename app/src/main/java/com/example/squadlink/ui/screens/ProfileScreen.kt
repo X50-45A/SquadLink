@@ -4,6 +4,7 @@ import android.content.Intent
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.net.Uri
+import android.util.Base64
 import java.net.URL
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -264,6 +265,14 @@ private fun ProfilePhoto(
         value = runCatching {
             if (uri.isBlank()) {
                 null
+            } else if (uri.startsWith("data:image/")) {
+                val base64 = uri.substringAfter("base64,", missingDelimiterValue = "")
+                if (base64.isBlank()) {
+                    null
+                } else {
+                    val bytes = Base64.decode(base64, Base64.DEFAULT)
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size).asImageBitmap()
+                }
             } else if (uri.startsWith("http://") || uri.startsWith("https://")) {
                 URL(uri).openStream().use { stream ->
                     BitmapFactory.decodeStream(stream).asImageBitmap()

@@ -1,5 +1,7 @@
 package com.example.squadlink.data
 
+import android.graphics.Bitmap
+import android.graphics.ImageDecoder
 import com.example.squadlink.model.AccountRole
 import com.example.squadlink.model.SquadMemberProfile
 import com.example.squadlink.model.SquadRole
@@ -13,8 +15,11 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.messaging.FirebaseMessaging
-import com.google.firebase.storage.FirebaseStorage
 import android.net.Uri
+import android.util.Base64
+import java.io.ByteArrayOutputStream
+import kotlin.math.max
+import kotlin.math.roundToInt
 import kotlin.random.Random
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -45,6 +50,8 @@ class FirebaseAccountRepository(
         private const val FIELD_CREATED_BY = "createdBy"
         private const val FIELD_PHOTO_URL = "photoUrl"
         private const val FIELD_FCM_TOKEN = "fcmToken"
+        private const val PROFILE_PHOTO_MAX_SIZE = 256
+        private const val PROFILE_PHOTO_MAX_BYTES = 700_000
     }
 
     suspend fun restoreSession(): UserAccountProfile? {
@@ -385,20 +392,16 @@ class FirebaseAccountRepository(
 
     suspend fun uploadProfilePicture(uri: Uri): String {
         require(preferencesRepository.canUseNetworkForSync()) {
-            "La sincronizacion esta limitada a Wi-Fi. Conectate a una red Wi-Fi para subir la foto."
+            "La sincronizacion esta limitada a Wi-Fi. Conectate a una red Wi-Fi para sincronizar la foto."
         }
         val currentUser = requireCurrentUser()
-        val storageRef = FirebaseStorage.getInstance().reference
-            .child("profiles/${currentUser.uid}.jpg")
-        
-        storageRef.putFile(uri).awaitResult()
-        val downloadUrl = storageRef.downloadUrl.awaitResult().toString()
+        val encodedPhoto = encodeProfilePhotoAsDataUrl(uri)
         
         firestore.collection(USERS_COLLECTION)
             .document(currentUser.uid)
             .set(
                 mapOf(
-                    FIELD_PHOTO_URL to downloadUrl,
+                    FIELD_PHOTO_URL to encodedPhoto,
                     FIELD_PROFILE_PHOTO_URI to "",
                     FIELD_UPDATED_AT to FieldValue.serverTimestamp()
                 ),
@@ -406,7 +409,36 @@ class FirebaseAccountRepository(
             )
             .awaitResult()
             
-        return downloadUrl
+        return encodedPhoto
+    }
+
+    private fun encodeProfilePhotoAsDataUrl(uri: Uri): String {
+        val source = ImageDecoder.createSource(preferencesRepository.context.contentResolver, uri)
+        val original = ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+        }
+        val bitmap = original.scaleToMax(PROFILE_PHOTO_MAX_SIZE)
+        if (bitmap !== original) {
+            original.recycle()
+        }
+
+        var quality = 82
+        var jpegBytes: ByteArray
+        do {
+            jpegBytes = bitmap.toJpegBytes(quality)
+            quality -= 10
+        } while (jpegBytes.size > PROFILE_PHOTO_MAX_BYTES && quality >= 42)
+
+        if (bitmap !== original) {
+            bitmap.recycle()
+        }
+
+        require(jpegBytes.size <= PROFILE_PHOTO_MAX_BYTES) {
+            "La foto es demasiado grande. Prueba con una imagen mas sencilla."
+        }
+
+        val encoded = Base64.encodeToString(jpegBytes, Base64.NO_WRAP)
+        return "data:image/jpeg;base64,$encoded"
     }
 
     suspend fun syncCurrentFcmToken() {
@@ -630,5 +662,22 @@ class FirebaseAccountRepository(
             squadName = "",
             squadCode = ""
         )
+    }
+}
+
+private fun Bitmap.scaleToMax(maxSize: Int): Bitmap {
+    val longestSide = max(width, height)
+    if (longestSide <= maxSize) return this
+
+    val scale = maxSize.toFloat() / longestSide.toFloat()
+    val targetWidth = (width * scale).roundToInt().coerceAtLeast(1)
+    val targetHeight = (height * scale).roundToInt().coerceAtLeast(1)
+    return Bitmap.createScaledBitmap(this, targetWidth, targetHeight, true)
+}
+
+private fun Bitmap.toJpegBytes(quality: Int): ByteArray {
+    return ByteArrayOutputStream().use { output ->
+        compress(Bitmap.CompressFormat.JPEG, quality, output)
+        output.toByteArray()
     }
 }

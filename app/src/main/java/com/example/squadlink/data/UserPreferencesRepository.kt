@@ -16,7 +16,7 @@ import com.example.squadlink.util.isConnectedToWifi
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "user_preferences")
 
-class UserPreferencesRepository(private val context: Context) {
+class UserPreferencesRepository(val context: Context) {
 
     companion object {
         val KEY_DARK_THEME     = booleanPreferencesKey("dark_theme")
