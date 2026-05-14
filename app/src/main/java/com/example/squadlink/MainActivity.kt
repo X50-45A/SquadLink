@@ -71,14 +71,18 @@ data class BottomNavItem(
 
 private fun bottomNavItemsForRole(isGameMaster: Boolean, hasActiveGame: Boolean): List<BottomNavItem> {
     if (hasActiveGame) {
-        val controlLabel = if (isGameMaster) "Control" else "Partida"
-        val controlIcon = if (isGameMaster) Icons.Default.Build else Icons.Default.Info
-        val controlRoute = if (isGameMaster) Screen.GameMaster.route else Screen.JoinGame.route
-        
+        if (isGameMaster) {
+            return listOf(
+                BottomNavItem("Partida", Icons.Default.Build, Screen.GameMaster.route),
+                BottomNavItem("Mapa", Icons.Default.LocationOn, Screen.Map.route),
+                BottomNavItem("Equipos", Icons.Default.Groups, Screen.Squad.route),
+                BottomNavItem("Perfil", Icons.Default.Person, Screen.Profile.route)
+            )
+        }
+
         return listOf(
             BottomNavItem("Mapa", Icons.Default.LocationOn, Screen.Map.route),
-            BottomNavItem(controlLabel, controlIcon, controlRoute),
-            BottomNavItem("Equipo", Icons.Default.Groups, Screen.Squad.route),
+            BottomNavItem("Objetivos", Icons.Default.Info, Screen.Squad.route),
             BottomNavItem("Perfil", Icons.Default.Person, Screen.Profile.route)
         )
     }

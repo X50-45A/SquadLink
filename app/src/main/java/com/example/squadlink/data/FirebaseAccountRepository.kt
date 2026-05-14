@@ -133,6 +133,21 @@ class FirebaseAccountRepository(
         awaitClose { registration.remove() }
     }
 
+    fun observeSquads(): Flow<List<SquadSummary>> = callbackFlow {
+        val registration = firestore
+            .collection(SQUADS_COLLECTION)
+            .orderBy(FIELD_DISPLAY_NAME, Query.Direction.ASCENDING)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                trySend(snapshot?.documents?.mapNotNull { it.toSquadSummary() }.orEmpty())
+            }
+
+        awaitClose { registration.remove() }
+    }
+
     fun observeSquadMembers(squadId: String): Flow<List<SquadMemberProfile>> = callbackFlow {
         val registration = firestore
             .collection(USERS_COLLECTION)

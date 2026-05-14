@@ -48,6 +48,7 @@ import com.example.squadlink.data.UserPreferencesRepository
 import com.example.squadlink.ui.map.DynamicObjective
 import com.example.squadlink.model.AccountRole
 import com.example.squadlink.model.SquadMemberProfile
+import com.example.squadlink.model.SquadSummary
 import com.example.squadlink.ui.squad.SquadViewModel
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.launch
@@ -64,7 +65,8 @@ fun SquadScreen(vm: SquadViewModel) {
     if (activeGameCode.isNotBlank()) {
         ActiveGameRosterScreen(
             gameCode = activeGameCode,
-            isGameMaster = isSessionGameMaster
+            isGameMaster = isSessionGameMaster,
+            squads = state.squads
         )
         return
     }
@@ -276,7 +278,8 @@ fun SquadScreen(vm: SquadViewModel) {
 @Composable
 private fun ActiveGameRosterScreen(
     gameCode: String,
-    isGameMaster: Boolean
+    isGameMaster: Boolean,
+    squads: List<SquadSummary>
 ) {
     val gameRepo = remember { FirebaseGameMapRepository() }
     val scope = rememberCoroutineScope()
@@ -356,6 +359,33 @@ private fun ActiveGameRosterScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+                item {
+                    Text("Escuadrones creados", style = MaterialTheme.typography.titleMedium)
+                }
+                if (squads.isEmpty()) {
+                    item {
+                        Text(
+                            "No hay escuadrones creados todavia.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                items(squads, key = { it.id }) { squad ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(squad.name, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "Codigo: ${squad.joinCode}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             } else {
