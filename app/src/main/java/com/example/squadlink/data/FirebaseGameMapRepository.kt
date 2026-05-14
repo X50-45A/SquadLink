@@ -37,6 +37,7 @@ class FirebaseGameMapRepository(
         private const val FIELD_TARGET_TEAM = "targetTeam"
         private const val FIELD_OWNER_NAME = "ownerName"
         private const val FIELD_OWNER_TEAM = "ownerTeam"
+        private const val FIELD_RADIUS_METERS = "radiusMeters"
         private const val FIELD_CREATED_AT = "createdAt"
         private const val FIELD_UPDATED_AT = "updatedAt"
         private const val FIELD_CODE = "code"
@@ -310,6 +311,7 @@ class FirebaseGameMapRepository(
                     FIELD_LONGITUDE to marker.position.longitude,
                     FIELD_OWNER_NAME to marker.ownerName,
                     FIELD_OWNER_TEAM to marker.ownerTeam,
+                    FIELD_RADIUS_METERS to marker.radiusMeters,
                     FIELD_UPDATED_AT to FieldValue.serverTimestamp(),
                     FIELD_CREATED_AT to FieldValue.serverTimestamp()
                 ),
@@ -471,7 +473,8 @@ class FirebaseGameMapRepository(
                 MarkerType.valueOf(getString(FIELD_TYPE).orEmpty())
             }.getOrDefault(MarkerType.CUSTOM),
             ownerName = getString(FIELD_OWNER_NAME).orEmpty(),
-            ownerTeam = getString(FIELD_OWNER_TEAM).orEmpty()
+            ownerTeam = getString(FIELD_OWNER_TEAM).orEmpty(),
+            radiusMeters = getDouble(FIELD_RADIUS_METERS) ?: 0.0
         )
     }
 

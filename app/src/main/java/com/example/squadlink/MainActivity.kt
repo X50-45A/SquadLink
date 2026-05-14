@@ -10,8 +10,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountBox
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
@@ -69,10 +71,14 @@ data class BottomNavItem(
 
 private fun bottomNavItemsForRole(isGameMaster: Boolean, hasActiveGame: Boolean): List<BottomNavItem> {
     if (hasActiveGame) {
-        val teamLabel = if (isGameMaster) "Equipos" else "Objetivos"
+        val controlLabel = if (isGameMaster) "Control" else "Partida"
+        val controlIcon = if (isGameMaster) Icons.Default.Build else Icons.Default.Info
+        val controlRoute = if (isGameMaster) Screen.GameMaster.route else Screen.JoinGame.route
+        
         return listOf(
             BottomNavItem("Mapa", Icons.Default.LocationOn, Screen.Map.route),
-            BottomNavItem(teamLabel, Icons.Default.AccountBox, Screen.Squad.route),
+            BottomNavItem(controlLabel, controlIcon, controlRoute),
+            BottomNavItem("Equipo", Icons.Default.Groups, Screen.Squad.route),
             BottomNavItem("Perfil", Icons.Default.Person, Screen.Profile.route)
         )
     }
@@ -80,7 +86,7 @@ private fun bottomNavItemsForRole(isGameMaster: Boolean, hasActiveGame: Boolean)
     return listOf(
         BottomNavItem("Lobby", Icons.Default.Home, Screen.Home.route),
         BottomNavItem("Mapa", Icons.Default.LocationOn, Screen.Map.route),
-        BottomNavItem("Escuadron", Icons.Default.AccountBox, Screen.Squad.route),
+        BottomNavItem("Escuadron", Icons.Default.Groups, Screen.Squad.route),
         BottomNavItem("Perfil", Icons.Default.Person, Screen.Profile.route),
         BottomNavItem("Ajustes", Icons.Default.Settings, Screen.Settings.route)
     )
