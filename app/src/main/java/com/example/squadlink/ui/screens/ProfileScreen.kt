@@ -1,6 +1,17 @@
-package com.example.squadlink.ui.screens
+﻿package com.example.squadlink.ui.screens
 
+import android.content.Intent
+import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.net.Uri
+import android.util.Base64
+import java.net.URL
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,7 +19,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -28,9 +41,16 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.squadlink.model.SquadRole
 import com.example.squadlink.ui.profile.ProfileViewModel
@@ -42,9 +62,21 @@ fun ProfileScreen(
     onLogout: () -> Unit
 ) {
     val state by vm.uiState.collectAsState()
+    val context = LocalContext.current
     var displayNameInput by remember(state.activeUser) { mutableStateOf(state.activeUser) }
     var callsignInput by remember(state.callsign) { mutableStateOf(state.callsign) }
     var squadRoleInput by remember(state.squadRole) { mutableStateOf(state.squadRole) }
+    val photoPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+            vm.uploadProfilePhoto(uri)
+        }
+    }
 
     LaunchedEffect(state.activeUser, state.isSessionResolved) {
         if (state.isSessionResolved && state.activeUser.isBlank()) {
@@ -87,6 +119,37 @@ fun ProfileScreen(
                         modifier = Modifier.padding(16.dp),
                         color = MaterialTheme.colorScheme.onErrorContainer
                     )
+                }
+            }
+
+            HorizontalDivider()
+
+            Text("Foto de perfil", style = MaterialTheme.typography.titleMedium)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                ProfilePhoto(
+                    uri = state.photoUrl.ifBlank { state.profilePhotoUri },
+                    fallback = state.callsign.ifBlank { state.activeUser },
+                    modifier = Modifier.size(96.dp)
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { photoPicker.launch(arrayOf("image/*")) },
+                        enabled = !state.isBusy
+                    ) {
+                        Text(if (state.photoUrl.isBlank() && state.profilePhotoUri.isBlank()) "Añadir foto" else "Cambiar foto")
+                    }
+                    if (state.photoUrl.isNotBlank() || state.profilePhotoUri.isNotBlank()) {
+                        OutlinedButton(
+                            onClick = { vm.updateProfilePhoto("") },
+                            enabled = !state.isBusy
+                        ) {
+                            Text("Quitar")
+                        }
+                    }
                 }
             }
 
@@ -190,3 +253,66 @@ fun ProfileScreen(
         }
     }
 }
+
+@Composable
+private fun ProfilePhoto(
+    uri: String,
+    fallback: String,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val bitmap by produceState<ImageBitmap?>(initialValue = null, uri) {
+        value = runCatching {
+            if (uri.isBlank()) {
+                null
+            } else if (uri.startsWith("data:image/")) {
+                val base64 = uri.substringAfter("base64,", missingDelimiterValue = "")
+                if (base64.isBlank()) {
+                    null
+                } else {
+                    val bytes = Base64.decode(base64, Base64.DEFAULT)
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size).asImageBitmap()
+                }
+            } else if (uri.startsWith("http://") || uri.startsWith("https://")) {
+                URL(uri).openStream().use { stream ->
+                    BitmapFactory.decodeStream(stream).asImageBitmap()
+                }
+            } else {
+                val source = ImageDecoder.createSource(context.contentResolver, Uri.parse(uri))
+                ImageDecoder.decodeBitmap(source).asImageBitmap()
+            }
+        }.getOrNull()
+    }
+
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primaryContainer),
+        contentAlignment = Alignment.Center
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap!!,
+                contentDescription = "Foto de perfil",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Text(
+                initialsFor(fallback),
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
+    }
+}
+
+private fun initialsFor(value: String): String {
+    return value
+        .split(" ", "-", "_")
+        .filter { it.isNotBlank() }
+        .take(2)
+        .joinToString("") { it.first().uppercase() }
+        .ifBlank { "SL" }
+}
+

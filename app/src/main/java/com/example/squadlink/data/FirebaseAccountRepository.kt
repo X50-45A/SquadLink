@@ -1,5 +1,7 @@
 package com.example.squadlink.data
 
+import android.graphics.Bitmap
+import android.graphics.ImageDecoder
 import com.example.squadlink.model.AccountRole
 import com.example.squadlink.model.SquadMemberProfile
 import com.example.squadlink.model.SquadRole
@@ -12,8 +14,12 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
-import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.messaging.FirebaseMessaging
 import android.net.Uri
+import android.util.Base64
+import java.io.ByteArrayOutputStream
+import kotlin.math.max
+import kotlin.math.roundToInt
 import kotlin.random.Random
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -33,6 +39,7 @@ class FirebaseAccountRepository(
         private const val FIELD_EMAIL = "email"
         private const val FIELD_ROLE = "role"
         private const val FIELD_CALLSIGN = "callsign"
+        private const val FIELD_PROFILE_PHOTO_URI = "profilePhotoUri"
         private const val FIELD_SQUAD_ID = "squadId"
         private const val FIELD_SQUAD_NAME = "squadName"
         private const val FIELD_SQUAD_CODE = "squadCode"
@@ -42,6 +49,9 @@ class FirebaseAccountRepository(
         private const val FIELD_JOIN_CODE = "joinCode"
         private const val FIELD_CREATED_BY = "createdBy"
         private const val FIELD_PHOTO_URL = "photoUrl"
+        private const val FIELD_FCM_TOKEN = "fcmToken"
+        private const val PROFILE_PHOTO_MAX_SIZE = 256
+        private const val PROFILE_PHOTO_MAX_BYTES = 700_000
     }
 
     suspend fun restoreSession(): UserAccountProfile? {
@@ -51,6 +61,7 @@ class FirebaseAccountRepository(
         }
 
         val profile = fetchOrCreateProfile(currentUser)
+        syncCurrentFcmToken()
         syncLocalProfile(profile, resetGameCode = false)
         return profile
     }
@@ -61,6 +72,7 @@ class FirebaseAccountRepository(
             .awaitResult()
         val firebaseUser = authResult.user ?: error("No se pudo recuperar el usuario autenticado.")
         val profile = fetchOrCreateProfile(firebaseUser)
+        syncCurrentFcmToken()
         syncLocalProfile(profile, resetGameCode = true)
         return profile
     }
@@ -82,9 +94,11 @@ class FirebaseAccountRepository(
             email = normalizedEmail,
             role = AccountRole.PLAYER,
             callsign = normalizedName,
+            profilePhotoUri = "",
             squadRole = SquadRole.RIFLEMAN
         )
         saveProfile(profile, isNewUser = true)
+        syncCurrentFcmToken()
         syncLocalProfile(profile, resetGameCode = true)
         return profile
     }
@@ -128,6 +142,21 @@ class FirebaseAccountRepository(
                 }
 
                 trySend(snapshot?.toSquadSummary())
+            }
+
+        awaitClose { registration.remove() }
+    }
+
+    fun observeSquads(): Flow<List<SquadSummary>> = callbackFlow {
+        val registration = firestore
+            .collection(SQUADS_COLLECTION)
+            .orderBy(FIELD_DISPLAY_NAME, Query.Direction.ASCENDING)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                trySend(snapshot?.documents?.mapNotNull { it.toSquadSummary() }.orEmpty())
             }
 
         awaitClose { registration.remove() }
@@ -195,6 +224,19 @@ class FirebaseAccountRepository(
             displayName = displayName.trim(),
             callsign = callsign.trim(),
             squadRole = squadRole
+        )
+        saveProfile(updatedProfile, isNewUser = false)
+        syncLocalProfile(updatedProfile, resetGameCode = false)
+        return updatedProfile
+    }
+
+    suspend fun updateProfilePhoto(uri: String): UserAccountProfile {
+        val currentUser = requireCurrentUser()
+        val currentProfile = fetchOrCreateProfile(currentUser)
+        val trimmedUri = uri.trim()
+        val updatedProfile = currentProfile.copy(
+            profilePhotoUri = trimmedUri,
+            photoUrl = if (trimmedUri.isBlank()) "" else currentProfile.photoUrl
         )
         saveProfile(updatedProfile, isNewUser = false)
         syncLocalProfile(updatedProfile, resetGameCode = false)
@@ -349,19 +391,83 @@ class FirebaseAccountRepository(
     }
 
     suspend fun uploadProfilePicture(uri: Uri): String {
+        require(preferencesRepository.canUseNetworkForSync()) {
+            "La sincronizacion esta limitada a Wi-Fi. Conectate a una red Wi-Fi para sincronizar la foto."
+        }
         val currentUser = requireCurrentUser()
-        val storageRef = FirebaseStorage.getInstance().reference
-            .child("profiles/${currentUser.uid}.jpg")
-        
-        storageRef.putFile(uri).awaitResult()
-        val downloadUrl = storageRef.downloadUrl.awaitResult().toString()
+        val encodedPhoto = encodeProfilePhotoAsDataUrl(uri)
         
         firestore.collection(USERS_COLLECTION)
             .document(currentUser.uid)
-            .update(FIELD_PHOTO_URL, downloadUrl)
+            .set(
+                mapOf(
+                    FIELD_PHOTO_URL to encodedPhoto,
+                    FIELD_PROFILE_PHOTO_URI to "",
+                    FIELD_UPDATED_AT to FieldValue.serverTimestamp()
+                ),
+                SetOptions.merge()
+            )
             .awaitResult()
             
-        return downloadUrl
+        return encodedPhoto
+    }
+
+    private fun encodeProfilePhotoAsDataUrl(uri: Uri): String {
+        val source = ImageDecoder.createSource(preferencesRepository.context.contentResolver, uri)
+        val original = ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+        }
+        val bitmap = original.scaleToMax(PROFILE_PHOTO_MAX_SIZE)
+        if (bitmap !== original) {
+            original.recycle()
+        }
+
+        var quality = 82
+        var jpegBytes: ByteArray
+        do {
+            jpegBytes = bitmap.toJpegBytes(quality)
+            quality -= 10
+        } while (jpegBytes.size > PROFILE_PHOTO_MAX_BYTES && quality >= 42)
+
+        if (bitmap !== original) {
+            bitmap.recycle()
+        }
+
+        require(jpegBytes.size <= PROFILE_PHOTO_MAX_BYTES) {
+            "La foto es demasiado grande. Prueba con una imagen mas sencilla."
+        }
+
+        val encoded = Base64.encodeToString(jpegBytes, Base64.NO_WRAP)
+        return "data:image/jpeg;base64,$encoded"
+    }
+
+    suspend fun syncCurrentFcmToken() {
+        val currentUser = auth.currentUser ?: return
+        val token = FirebaseMessaging.getInstance().token.awaitResult()
+        firestore.collection(USERS_COLLECTION)
+            .document(currentUser.uid)
+            .set(
+                mapOf(
+                    FIELD_FCM_TOKEN to token,
+                    FIELD_UPDATED_AT to FieldValue.serverTimestamp()
+                ),
+                SetOptions.merge()
+            )
+            .awaitResult()
+    }
+
+    suspend fun saveFcmToken(token: String) {
+        val currentUser = auth.currentUser ?: return
+        firestore.collection(USERS_COLLECTION)
+            .document(currentUser.uid)
+            .set(
+                mapOf(
+                    FIELD_FCM_TOKEN to token,
+                    FIELD_UPDATED_AT to FieldValue.serverTimestamp()
+                ),
+                SetOptions.merge()
+            )
+            .awaitResult()
     }
 
     private suspend fun fetchOrCreateProfile(firebaseUser: FirebaseUser): UserAccountProfile {
@@ -390,6 +496,8 @@ class FirebaseAccountRepository(
             FIELD_EMAIL to profile.email,
             FIELD_ROLE to profile.role.wireValue,
             FIELD_CALLSIGN to profile.callsign.ifBlank { profile.displayName },
+            FIELD_PROFILE_PHOTO_URI to profile.profilePhotoUri,
+            FIELD_PHOTO_URL to profile.photoUrl,
             FIELD_SQUAD_ID to profile.squadId,
             FIELD_SQUAD_NAME to profile.squadName,
             FIELD_SQUAD_CODE to profile.squadCode,
@@ -447,6 +555,7 @@ class FirebaseAccountRepository(
             email = firebaseUser.email ?: "",
             role = AccountRole.PLAYER,
             callsign = fallbackName,
+            profilePhotoUri = "",
             squadRole = SquadRole.RIFLEMAN
         )
     }
@@ -525,6 +634,7 @@ class FirebaseAccountRepository(
                 ?.trim()
                 .orEmpty()
                 .ifBlank { getString(FIELD_DISPLAY_NAME)?.trim().orEmpty().ifBlank { fallbackName } },
+            profilePhotoUri = getString(FIELD_PROFILE_PHOTO_URI)?.trim().orEmpty(),
             squadId = getString(FIELD_SQUAD_ID)?.trim().orEmpty(),
             squadName = getString(FIELD_SQUAD_NAME)?.trim().orEmpty(),
             squadCode = getString(FIELD_SQUAD_CODE)?.trim().orEmpty(),
@@ -552,5 +662,22 @@ class FirebaseAccountRepository(
             squadName = "",
             squadCode = ""
         )
+    }
+}
+
+private fun Bitmap.scaleToMax(maxSize: Int): Bitmap {
+    val longestSide = max(width, height)
+    if (longestSide <= maxSize) return this
+
+    val scale = maxSize.toFloat() / longestSide.toFloat()
+    val targetWidth = (width * scale).roundToInt().coerceAtLeast(1)
+    val targetHeight = (height * scale).roundToInt().coerceAtLeast(1)
+    return Bitmap.createScaledBitmap(this, targetWidth, targetHeight, true)
+}
+
+private fun Bitmap.toJpegBytes(quality: Int): ByteArray {
+    return ByteArrayOutputStream().use { output ->
+        compress(Bitmap.CompressFormat.JPEG, quality, output)
+        output.toByteArray()
     }
 }

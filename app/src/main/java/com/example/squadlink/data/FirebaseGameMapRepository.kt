@@ -12,6 +12,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -37,6 +38,7 @@ class FirebaseGameMapRepository(
         private const val FIELD_TARGET_TEAM = "targetTeam"
         private const val FIELD_OWNER_NAME = "ownerName"
         private const val FIELD_OWNER_TEAM = "ownerTeam"
+        private const val FIELD_RADIUS_METERS = "radiusMeters"
         private const val FIELD_CREATED_AT = "createdAt"
         private const val FIELD_UPDATED_AT = "updatedAt"
         private const val FIELD_CODE = "code"
@@ -55,6 +57,7 @@ class FirebaseGameMapRepository(
         private const val FIELD_SQUAD_ROLE = "squadRole"
         private const val FIELD_TEAM = "team"
         private const val FIELD_EXPELLED = "expelled"
+        private const val FIELD_OUT_OF_BOUNDS = "outOfBounds"
         private const val FIELD_START_TIME = "startTime"
         private const val FIELD_REST_START_TIME = "restStartTime"
         private const val FIELD_REST_END_TIME = "restEndTime"
@@ -160,6 +163,7 @@ class FirebaseGameMapRepository(
                 SetOptions.merge()
             )
             .awaitResult()
+        subscribeToGameTopic(normalizedCode)
     }
 
     suspend fun startGame(gameCode: String) {
@@ -213,6 +217,7 @@ class FirebaseGameMapRepository(
                 SetOptions.merge()
             )
             .awaitResult()
+        subscribeToGameTopic(gameCode)
     }
 
     suspend fun expelPlayer(gameCode: String, playerId: String) {
@@ -224,6 +229,28 @@ class FirebaseGameMapRepository(
             .set(
                 mapOf(
                     FIELD_EXPELLED to true,
+                    FIELD_UPDATED_AT to FieldValue.serverTimestamp()
+                ),
+                SetOptions.merge()
+            )
+            .awaitResult()
+    }
+
+    suspend fun updatePlayerLocation(
+        gameCode: String,
+        position: LatLng,
+        outOfBounds: Boolean
+    ) {
+        val currentUser = requireCurrentUser()
+        require(gameCode.isNotBlank()) { "No hay partida activa." }
+        gameDocument(gameCode)
+            .collection(PLAYERS_COLLECTION)
+            .document(currentUser.uid)
+            .set(
+                mapOf(
+                    FIELD_LATITUDE to position.latitude,
+                    FIELD_LONGITUDE to position.longitude,
+                    FIELD_OUT_OF_BOUNDS to outOfBounds,
                     FIELD_UPDATED_AT to FieldValue.serverTimestamp()
                 ),
                 SetOptions.merge()
@@ -310,6 +337,7 @@ class FirebaseGameMapRepository(
                     FIELD_LONGITUDE to marker.position.longitude,
                     FIELD_OWNER_NAME to marker.ownerName,
                     FIELD_OWNER_TEAM to marker.ownerTeam,
+                    FIELD_RADIUS_METERS to marker.radiusMeters,
                     FIELD_UPDATED_AT to FieldValue.serverTimestamp(),
                     FIELD_CREATED_AT to FieldValue.serverTimestamp()
                 ),
@@ -385,8 +413,25 @@ class FirebaseGameMapRepository(
             .awaitResult()
     }
 
+    suspend fun subscribeToGameTopic(gameCode: String) {
+        if (gameCode.isBlank()) return
+        FirebaseMessaging.getInstance()
+            .subscribeToTopic(topicForGame(gameCode))
+            .awaitResult()
+    }
+
+    suspend fun unsubscribeFromGameTopic(gameCode: String) {
+        if (gameCode.isBlank()) return
+        FirebaseMessaging.getInstance()
+            .unsubscribeFromTopic(topicForGame(gameCode))
+            .awaitResult()
+    }
+
     private fun gameDocument(gameCode: String) =
         firestore.collection(GAMES_COLLECTION).document(gameCode.trim().uppercase())
+
+    private fun topicForGame(gameCode: String): String =
+        "game_${gameCode.trim().uppercase().replace(Regex("[^A-Z0-9_-]"), "_")}"
 
     private suspend fun requireCurrentUser() =
         auth.currentUser ?: error("Necesitas iniciar sesion para realizar esta accion.")
@@ -447,7 +492,9 @@ class FirebaseGameMapRepository(
             callsign = getString(FIELD_CALLSIGN)?.trim().orEmpty(),
             squadName = getString(FIELD_SQUAD_NAME)?.trim().orEmpty(),
             squadRole = getString(FIELD_SQUAD_ROLE)?.trim().orEmpty(),
-            team = GameTeam.fromWireValue(getString(FIELD_TEAM))
+            team = GameTeam.fromWireValue(getString(FIELD_TEAM)),
+            position = readLatLngOrNull(),
+            isOutOfBounds = getBoolean(FIELD_OUT_OF_BOUNDS) == true
         )
     }
 
@@ -471,7 +518,8 @@ class FirebaseGameMapRepository(
                 MarkerType.valueOf(getString(FIELD_TYPE).orEmpty())
             }.getOrDefault(MarkerType.CUSTOM),
             ownerName = getString(FIELD_OWNER_NAME).orEmpty(),
-            ownerTeam = getString(FIELD_OWNER_TEAM).orEmpty()
+            ownerTeam = getString(FIELD_OWNER_TEAM).orEmpty(),
+            radiusMeters = getDouble(FIELD_RADIUS_METERS) ?: 0.0
         )
     }
 
@@ -506,6 +554,12 @@ class FirebaseGameMapRepository(
             targetTeam = getString(FIELD_TARGET_TEAM)?.trim()?.takeIf { it.isNotBlank() }
         )
     }
+
+    private fun DocumentSnapshot.readLatLngOrNull(): LatLng? {
+        val latitude = getDouble(FIELD_LATITUDE) ?: return null
+        val longitude = getDouble(FIELD_LONGITUDE) ?: return null
+        return LatLng(latitude, longitude)
+    }
 }
 
 data class ActiveGame(
@@ -528,7 +582,9 @@ data class GamePlayer(
     val callsign: String,
     val squadName: String,
     val squadRole: String,
-    val team: GameTeam
+    val team: GameTeam,
+    val position: LatLng? = null,
+    val isOutOfBounds: Boolean = false
 )
 
 data class GamePlayerStatus(

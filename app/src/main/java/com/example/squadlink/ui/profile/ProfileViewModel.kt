@@ -3,6 +3,7 @@ package com.example.squadlink.ui.profile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import android.net.Uri
 import com.example.squadlink.data.FirebaseAccountRepository
 import com.example.squadlink.data.UserPreferencesRepository
 import com.example.squadlink.model.SquadRole
@@ -27,6 +28,8 @@ data class ProfileUiState(
     val activeEmail: String = "",
     val isGameMaster: Boolean = false,
     val callsign: String = "",
+    val profilePhotoUri: String = "",
+    val photoUrl: String = "",
     val squadName: String = "",
     val squadCode: String = "",
     val squadRole: SquadRole = SquadRole.RIFLEMAN,
@@ -56,6 +59,8 @@ class ProfileViewModel(
             activeEmail = email,
             isGameMaster = gm,
             callsign = profile?.callsign.orEmpty(),
+            profilePhotoUri = profile?.profilePhotoUri.orEmpty(),
+            photoUrl = profile?.photoUrl.orEmpty(),
             squadName = profile?.squadName.orEmpty(),
             squadCode = profile?.squadCode.orEmpty(),
             squadRole = profile?.squadRole ?: SquadRole.RIFLEMAN
@@ -132,6 +137,30 @@ class ProfileViewModel(
                     callsign = callsign,
                     squadRole = squadRole
                 )
+            } catch (error: Throwable) {
+                viewState.update { it.copy(errorMessage = error.toFriendlyMessage()) }
+            }
+            viewState.update { it.copy(isBusy = false) }
+        }
+    }
+
+    fun updateProfilePhoto(uri: String) {
+        viewModelScope.launch {
+            viewState.update { it.copy(isBusy = true, errorMessage = null) }
+            try {
+                accountRepository.updateProfilePhoto(uri)
+            } catch (error: Throwable) {
+                viewState.update { it.copy(errorMessage = error.toFriendlyMessage()) }
+            }
+            viewState.update { it.copy(isBusy = false) }
+        }
+    }
+
+    fun uploadProfilePhoto(uri: Uri) {
+        viewModelScope.launch {
+            viewState.update { it.copy(isBusy = true, errorMessage = null) }
+            try {
+                accountRepository.uploadProfilePicture(uri)
             } catch (error: Throwable) {
                 viewState.update { it.copy(errorMessage = error.toFriendlyMessage()) }
             }

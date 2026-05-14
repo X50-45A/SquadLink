@@ -29,6 +29,7 @@ data class SquadUiState(
     val squadName: String = "",
     val squadCode: String = "",
     val squadLeaderId: String = "",
+    val squads: List<SquadSummary> = emptyList(),
     val members: List<SquadMemberProfile> = emptyList(),
     val isBusy: Boolean = false,
     val errorMessage: String? = null
@@ -79,15 +80,23 @@ class SquadViewModel(
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = null
+        initialValue = null
+    )
+
+    private val squadsFlow: StateFlow<List<SquadSummary>> = accountRepository.observeSquads()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = emptyList()
         )
 
     val uiState: StateFlow<SquadUiState> = combine(
         profileFlow,
         squadFlow,
         membersFlow,
+        squadsFlow,
         viewState
-    ) { profile, squad, members, state ->
+    ) { profile, squad, members, squads, state ->
         state.copy(
             currentUserId = profile?.uid.orEmpty(),
             currentUserName = profile?.displayName.orEmpty(),
@@ -97,6 +106,7 @@ class SquadViewModel(
             squadName = squad?.name ?: profile?.squadName.orEmpty(),
             squadCode = squad?.joinCode ?: profile?.squadCode.orEmpty(),
             squadLeaderId = squad?.createdBy.orEmpty(),
+            squads = squads,
             members = members
         )
     }.stateIn(

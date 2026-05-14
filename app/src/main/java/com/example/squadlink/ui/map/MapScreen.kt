@@ -57,6 +57,7 @@ import com.example.squadlink.data.FirebaseGameMapRepository
 import com.example.squadlink.data.UserPreferencesRepository
 import com.example.squadlink.geofence.GeofenceManager
 import com.example.squadlink.notifications.NotificationHelper
+import com.example.squadlink.util.isInsideGeofence
 import kotlinx.coroutines.launch
 
 private val GridColor = Color(0x2200FF41)
@@ -123,6 +124,7 @@ fun MapScreen(
     var selectedTacticalMarker by remember { mutableStateOf<TacticalMarker?>(null) }
     var objectiveEditorPosition by remember { mutableStateOf<LatLng?>(null) }
     var objectiveEditorTarget by remember { mutableStateOf<DynamicObjective?>(null) }
+    var safeZonePosition by remember { mutableStateOf<LatLng?>(null) }
     val mapLocked = sessionState.activeGameCode.isNotBlank()
     val markerMode = mapState.markerMode
     var markerCount by remember { mutableStateOf(0) }
@@ -204,12 +206,47 @@ fun MapScreen(
     LocationUpdatesEffect(
         enabled = locationPermissionState.hasPermission,
         onLocation = { location ->
+            val position = LatLng(location.latitude, location.longitude)
             mapVm.onPlayerLocationUpdate(
-                LatLng(location.latitude, location.longitude),
+                position,
                 sessionState.isGameMaster
             )
+            if (
+                sessionState.activeGameCode.isNotBlank() &&
+                !sessionState.isGameMaster &&
+                field != null
+            ) {
+                scope.launch {
+                    gameMapRepo.updatePlayerLocation(
+                        gameCode = sessionState.activeGameCode,
+                        position = position,
+                        outOfBounds = !isInsideGeofence(position, field.perimeter)
+                    )
+                }
+            }
         }
     )
+
+    LaunchedEffect(sessionState.activeGameCode, sessionState.isGameMaster) {
+        if (sessionState.activeGameCode.isBlank() || !sessionState.isGameMaster) {
+            mapVm.onPlayersUpdated(emptyList())
+            return@LaunchedEffect
+        }
+        gameMapRepo.observeGamePlayers(sessionState.activeGameCode).collect { players ->
+            mapVm.onPlayersUpdated(
+                players.mapNotNull { player ->
+                    val position = player.position ?: return@mapNotNull null
+                    PlayerMarker(
+                        id = player.uid,
+                        name = player.callsign.ifBlank { player.displayName },
+                        role = player.team.label,
+                        position = position,
+                        isOutOfBounds = player.isOutOfBounds
+                    )
+                }
+            )
+        }
+    }
 
     val shouldArmGeofence = sessionState.activeGameCode.isNotBlank() &&
         !sessionState.isGameMaster &&
@@ -303,6 +340,10 @@ fun MapScreen(
                 onMapLoaded = { mapLoaded = true },
                 onMapClick = { latLng ->
                     val mode = markerMode ?: return@LandscapeMapLayout
+                    if (mode == MarkerType.SAFE_ZONE) {
+                        safeZonePosition = latLng
+                        return@LandscapeMapLayout
+                    }
                     val label = markerLabelFor(mode, customMarkerLabel)
                     val marker = mapVm.addTacticalMarker(
                         type = mode,
@@ -349,6 +390,10 @@ fun MapScreen(
                 onMapLoaded = { mapLoaded = true },
                 onMapClick = { latLng ->
                     val mode = markerMode ?: return@PortraitMapLayout
+                    if (mode == MarkerType.SAFE_ZONE) {
+                        safeZonePosition = latLng
+                        return@PortraitMapLayout
+                    }
                     val label = markerLabelFor(mode, customMarkerLabel)
                     val marker = mapVm.addTacticalMarker(
                         type = mode,
@@ -548,6 +593,29 @@ fun MapScreen(
                     }
                     objectiveEditorPosition = null
                     objectiveEditorTarget = null
+                }
+            )
+        }
+
+        safeZonePosition?.let { position ->
+            SafeZoneEditorDialog(
+                onDismiss = { safeZonePosition = null },
+                onSave = { label, radiusMeters ->
+                    val marker = mapVm.addTacticalMarker(
+                        type = MarkerType.SAFE_ZONE,
+                        position = position,
+                        label = label,
+                        ownerName = sessionState.suggestedPlayerName,
+                        ownerTeam = "",
+                        radiusMeters = radiusMeters
+                    )
+                    mapVm.setMarkerMode(null)
+                    if (sessionState.activeGameCode.isNotBlank()) {
+                        scope.launch {
+                            gameMapRepo.upsertTacticalMarker(sessionState.activeGameCode, marker)
+                        }
+                    }
+                    safeZonePosition = null
                 }
             )
         }
@@ -833,6 +901,18 @@ private fun TacticalGoogleMap(
                 icon = tacticalIcons[iconKey]
             )
         }
+
+        state.tacticalMarkers
+            .filter { it.type == MarkerType.SAFE_ZONE && it.radiusMeters > 0.0 }
+            .forEach { marker ->
+                Circle(
+                    center = marker.position,
+                    radius = marker.radiusMeters,
+                    fillColor = NatoGreen.copy(alpha = 0.18f),
+                    strokeColor = NatoGreen,
+                    strokeWidth = 4f
+                )
+            }
 
         state.tacticalMarkers.forEach { marker ->
             Marker(
@@ -1184,6 +1264,59 @@ private fun ObjectiveEditorDialog(
                     )
                 },
                 enabled = description.isNotBlank() && (!targetOnlyOneTeam || targetTeam.isNotBlank())
+            ) {
+                Text("Guardar")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancelar")
+            }
+        }
+    )
+}
+
+@Composable
+private fun SafeZoneEditorDialog(
+    onDismiss: () -> Unit,
+    onSave: (String, Double) -> Unit
+) {
+    var label by remember { mutableStateOf("Zona segura") }
+    var radiusText by remember { mutableStateOf("25") }
+    val radius = radiusText.toDoubleOrNull()?.coerceIn(5.0, 250.0)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Zona segura") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = { label = it },
+                    label = { Text("Nombre") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = radiusText,
+                    onValueChange = { value ->
+                        radiusText = value.filter { it.isDigit() || it == '.' }
+                    },
+                    label = { Text("Radio en metros") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    "Se dibujara un limite circular visible para todos los jugadores.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(label, radius ?: 25.0) },
+                enabled = label.isNotBlank() && radius != null
             ) {
                 Text("Guardar")
             }

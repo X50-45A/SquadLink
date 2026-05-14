@@ -6,6 +6,7 @@ data class UserAccountProfile(
     val email: String,
     val role: AccountRole,
     val callsign: String = "",
+    val profilePhotoUri: String = "",
     val squadId: String = "",
     val squadName: String = "",
     val squadCode: String = "",

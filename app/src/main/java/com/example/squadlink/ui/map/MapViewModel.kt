@@ -25,7 +25,8 @@ data class TacticalMarker(
     val position: LatLng,
     val type: MarkerType,
     val ownerName: String = "",
-    val ownerTeam: String = ""
+    val ownerTeam: String = "",
+    val radiusMeters: Double = 0.0
 )
 
 data class SafeZoneArea(
@@ -152,7 +153,8 @@ class MapViewModel : ViewModel() {
         position: LatLng,
         label: String,
         ownerName: String = "",
-        ownerTeam: String = ""
+        ownerTeam: String = "",
+        radiusMeters: Double = 0.0
     ): TacticalMarker {
         val resolvedLabel = when (type) {
             MarkerType.OBJECTIVE -> {
@@ -188,7 +190,8 @@ class MapViewModel : ViewModel() {
             position = position,
             type = type,
             ownerName = ownerName,
-            ownerTeam = ownerTeam
+            ownerTeam = ownerTeam,
+            radiusMeters = radiusMeters
         )
         _uiState.update { it.copy(tacticalMarkers = it.tacticalMarkers + marker, markerMode = null) }
         return marker
