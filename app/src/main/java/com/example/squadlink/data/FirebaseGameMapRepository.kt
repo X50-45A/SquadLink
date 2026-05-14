@@ -56,6 +56,7 @@ class FirebaseGameMapRepository(
         private const val FIELD_SQUAD_ROLE = "squadRole"
         private const val FIELD_TEAM = "team"
         private const val FIELD_EXPELLED = "expelled"
+        private const val FIELD_OUT_OF_BOUNDS = "outOfBounds"
         private const val FIELD_START_TIME = "startTime"
         private const val FIELD_REST_START_TIME = "restStartTime"
         private const val FIELD_REST_END_TIME = "restEndTime"
@@ -225,6 +226,28 @@ class FirebaseGameMapRepository(
             .set(
                 mapOf(
                     FIELD_EXPELLED to true,
+                    FIELD_UPDATED_AT to FieldValue.serverTimestamp()
+                ),
+                SetOptions.merge()
+            )
+            .awaitResult()
+    }
+
+    suspend fun updatePlayerLocation(
+        gameCode: String,
+        position: LatLng,
+        outOfBounds: Boolean
+    ) {
+        val currentUser = requireCurrentUser()
+        require(gameCode.isNotBlank()) { "No hay partida activa." }
+        gameDocument(gameCode)
+            .collection(PLAYERS_COLLECTION)
+            .document(currentUser.uid)
+            .set(
+                mapOf(
+                    FIELD_LATITUDE to position.latitude,
+                    FIELD_LONGITUDE to position.longitude,
+                    FIELD_OUT_OF_BOUNDS to outOfBounds,
                     FIELD_UPDATED_AT to FieldValue.serverTimestamp()
                 ),
                 SetOptions.merge()
@@ -449,7 +472,9 @@ class FirebaseGameMapRepository(
             callsign = getString(FIELD_CALLSIGN)?.trim().orEmpty(),
             squadName = getString(FIELD_SQUAD_NAME)?.trim().orEmpty(),
             squadRole = getString(FIELD_SQUAD_ROLE)?.trim().orEmpty(),
-            team = GameTeam.fromWireValue(getString(FIELD_TEAM))
+            team = GameTeam.fromWireValue(getString(FIELD_TEAM)),
+            position = readLatLngOrNull(),
+            isOutOfBounds = getBoolean(FIELD_OUT_OF_BOUNDS) == true
         )
     }
 
@@ -509,6 +534,12 @@ class FirebaseGameMapRepository(
             targetTeam = getString(FIELD_TARGET_TEAM)?.trim()?.takeIf { it.isNotBlank() }
         )
     }
+
+    private fun DocumentSnapshot.readLatLngOrNull(): LatLng? {
+        val latitude = getDouble(FIELD_LATITUDE) ?: return null
+        val longitude = getDouble(FIELD_LONGITUDE) ?: return null
+        return LatLng(latitude, longitude)
+    }
 }
 
 data class ActiveGame(
@@ -531,7 +562,9 @@ data class GamePlayer(
     val callsign: String,
     val squadName: String,
     val squadRole: String,
-    val team: GameTeam
+    val team: GameTeam,
+    val position: LatLng? = null,
+    val isOutOfBounds: Boolean = false
 )
 
 data class GamePlayerStatus(

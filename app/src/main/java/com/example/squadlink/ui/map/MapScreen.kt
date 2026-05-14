@@ -57,6 +57,7 @@ import com.example.squadlink.data.FirebaseGameMapRepository
 import com.example.squadlink.data.UserPreferencesRepository
 import com.example.squadlink.geofence.GeofenceManager
 import com.example.squadlink.notifications.NotificationHelper
+import com.example.squadlink.util.isInsideGeofence
 import kotlinx.coroutines.launch
 
 private val GridColor = Color(0x2200FF41)
@@ -205,12 +206,47 @@ fun MapScreen(
     LocationUpdatesEffect(
         enabled = locationPermissionState.hasPermission,
         onLocation = { location ->
+            val position = LatLng(location.latitude, location.longitude)
             mapVm.onPlayerLocationUpdate(
-                LatLng(location.latitude, location.longitude),
+                position,
                 sessionState.isGameMaster
             )
+            if (
+                sessionState.activeGameCode.isNotBlank() &&
+                !sessionState.isGameMaster &&
+                field != null
+            ) {
+                scope.launch {
+                    gameMapRepo.updatePlayerLocation(
+                        gameCode = sessionState.activeGameCode,
+                        position = position,
+                        outOfBounds = !isInsideGeofence(position, field.perimeter)
+                    )
+                }
+            }
         }
     )
+
+    LaunchedEffect(sessionState.activeGameCode, sessionState.isGameMaster) {
+        if (sessionState.activeGameCode.isBlank() || !sessionState.isGameMaster) {
+            mapVm.onPlayersUpdated(emptyList())
+            return@LaunchedEffect
+        }
+        gameMapRepo.observeGamePlayers(sessionState.activeGameCode).collect { players ->
+            mapVm.onPlayersUpdated(
+                players.mapNotNull { player ->
+                    val position = player.position ?: return@mapNotNull null
+                    PlayerMarker(
+                        id = player.uid,
+                        name = player.callsign.ifBlank { player.displayName },
+                        role = player.team.label,
+                        position = position,
+                        isOutOfBounds = player.isOutOfBounds
+                    )
+                }
+            )
+        }
+    }
 
     val shouldArmGeofence = sessionState.activeGameCode.isNotBlank() &&
         !sessionState.isGameMaster &&
