@@ -226,6 +226,16 @@ class MapViewModel : ViewModel() {
         }
     }
 
+    fun updateSafeZoneArea(area: SafeZoneArea) {
+        _uiState.update {
+            it.copy(
+                safeZoneAreas = it.safeZoneAreas.map { current ->
+                    if (current.id == area.id) area else current
+                }
+            )
+        }
+    }
+
     fun addDynamicObjective(
         type: ObjectiveType,
         description: String,
