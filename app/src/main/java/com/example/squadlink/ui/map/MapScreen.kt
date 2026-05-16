@@ -59,6 +59,11 @@ import com.example.squadlink.geofence.GeofenceManager
 import com.example.squadlink.notifications.NotificationHelper
 import com.example.squadlink.util.isInsideGeofence
 import kotlinx.coroutines.launch
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.max
+import kotlin.math.sin
 
 private val GridColor = Color(0x2200FF41)
 private val FieldFill = Color(0x1A4CAF50)
@@ -122,9 +127,11 @@ fun MapScreen(
     var objectiveMenuPosition by remember { mutableStateOf<LatLng?>(null) }
     var selectedObjective by remember { mutableStateOf<DynamicObjective?>(null) }
     var selectedTacticalMarker by remember { mutableStateOf<TacticalMarker?>(null) }
+    var selectedSafeZoneArea by remember { mutableStateOf<SafeZoneArea?>(null) }
     var objectiveEditorPosition by remember { mutableStateOf<LatLng?>(null) }
     var objectiveEditorTarget by remember { mutableStateOf<DynamicObjective?>(null) }
-    var safeZonePosition by remember { mutableStateOf<LatLng?>(null) }
+    var safeZoneEditorCenter by remember { mutableStateOf<LatLng?>(null) }
+    var safeZoneEditorTarget by remember { mutableStateOf<SafeZoneArea?>(null) }
     val mapLocked = sessionState.activeGameCode.isNotBlank()
     val markerMode = mapState.markerMode
     var markerCount by remember { mutableStateOf(0) }
@@ -180,6 +187,17 @@ fun MapScreen(
         }
         gameMapRepo.observeDynamicObjectives(activeGameCode).collect { objectives ->
             mapVm.onDynamicObjectivesUpdated(objectives)
+        }
+    }
+
+    LaunchedEffect(sessionState.activeGameCode) {
+        val activeGameCode = sessionState.activeGameCode
+        if (activeGameCode.isBlank()) {
+            mapVm.onSafeZoneAreasUpdated(emptyList())
+            return@LaunchedEffect
+        }
+        gameMapRepo.observeSafeZoneAreas(activeGameCode).collect { areas ->
+            mapVm.onSafeZoneAreasUpdated(areas)
         }
     }
 
@@ -341,7 +359,8 @@ fun MapScreen(
                 onMapClick = { latLng ->
                     val mode = markerMode ?: return@LandscapeMapLayout
                     if (mode == MarkerType.SAFE_ZONE) {
-                        safeZonePosition = latLng
+                        safeZoneEditorCenter = latLng
+                        safeZoneEditorTarget = null
                         return@LandscapeMapLayout
                     }
                     val label = markerLabelFor(mode, customMarkerLabel)
@@ -364,15 +383,24 @@ fun MapScreen(
                         objectiveMenuPosition = latLng
                         selectedObjective = null
                         selectedTacticalMarker = null
+                        selectedSafeZoneArea = null
                     }
                 },
                 onTacticalMarkerClick = { marker ->
                     selectedTacticalMarker = marker
                     selectedObjective = null
+                    selectedSafeZoneArea = null
                     objectiveMenuPosition = null
                 },
                 onDynamicObjectiveClick = { objective ->
                     selectedObjective = objective
+                    selectedTacticalMarker = null
+                    selectedSafeZoneArea = null
+                    objectiveMenuPosition = null
+                },
+                onSafeZoneAreaClick = { area ->
+                    selectedSafeZoneArea = area
+                    selectedObjective = null
                     selectedTacticalMarker = null
                     objectiveMenuPosition = null
                 }
@@ -391,7 +419,8 @@ fun MapScreen(
                 onMapClick = { latLng ->
                     val mode = markerMode ?: return@PortraitMapLayout
                     if (mode == MarkerType.SAFE_ZONE) {
-                        safeZonePosition = latLng
+                        safeZoneEditorCenter = latLng
+                        safeZoneEditorTarget = null
                         return@PortraitMapLayout
                     }
                     val label = markerLabelFor(mode, customMarkerLabel)
@@ -414,15 +443,24 @@ fun MapScreen(
                         objectiveMenuPosition = latLng
                         selectedObjective = null
                         selectedTacticalMarker = null
+                        selectedSafeZoneArea = null
                     }
                 },
                 onTacticalMarkerClick = { marker ->
                     selectedTacticalMarker = marker
                     selectedObjective = null
+                    selectedSafeZoneArea = null
                     objectiveMenuPosition = null
                 },
                 onDynamicObjectiveClick = { objective ->
                     selectedObjective = objective
+                    selectedTacticalMarker = null
+                    selectedSafeZoneArea = null
+                    objectiveMenuPosition = null
+                },
+                onSafeZoneAreaClick = { area ->
+                    selectedSafeZoneArea = area
+                    selectedObjective = null
                     selectedTacticalMarker = null
                     objectiveMenuPosition = null
                 }
@@ -497,6 +535,7 @@ fun MapScreen(
                 onAddObjective = {
                     objectiveEditorPosition = position
                     objectiveEditorTarget = null
+                    selectedSafeZoneArea = null
                     objectiveMenuPosition = null
                 },
                 onAddMarker = {
@@ -597,25 +636,62 @@ fun MapScreen(
             )
         }
 
-        safeZonePosition?.let { position ->
+        selectedSafeZoneArea?.let { area ->
+            if (sessionState.isGameMaster) {
+                SafeZoneActionCard(
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
+                    area = area,
+                    onEdit = {
+                        safeZoneEditorTarget = area
+                        safeZoneEditorCenter = area.center
+                        selectedSafeZoneArea = null
+                    },
+                    onDelete = {
+                        mapVm.deleteSafeZoneArea(area.id)
+                        if (sessionState.activeGameCode.isNotBlank()) {
+                            scope.launch {
+                                gameMapRepo.deleteSafeZoneArea(sessionState.activeGameCode, area.id)
+                            }
+                        }
+                        selectedSafeZoneArea = null
+                    },
+                    onDismiss = { selectedSafeZoneArea = null }
+                )
+            }
+        }
+
+        safeZoneEditorCenter?.let { center ->
             SafeZoneEditorDialog(
-                onDismiss = { safeZonePosition = null },
+                area = safeZoneEditorTarget,
+                onDismiss = {
+                    safeZoneEditorCenter = null
+                    safeZoneEditorTarget = null
+                },
                 onSave = { label, radiusMeters ->
-                    val marker = mapVm.addTacticalMarker(
-                        type = MarkerType.SAFE_ZONE,
-                        position = position,
-                        label = label,
-                        ownerName = sessionState.suggestedPlayerName,
-                        ownerTeam = "",
-                        radiusMeters = radiusMeters
-                    )
+                    val points = buildCircularSafeZoneBoundary(center, radiusMeters)
+                    val existing = safeZoneEditorTarget
+                    val area = if (existing == null) {
+                        mapVm.addSafeZoneArea(
+                            name = label.trim(),
+                            center = center,
+                            radius = radiusMeters.toFloat(),
+                            points = points
+                        )
+                    } else {
+                        existing.copy(
+                            name = label.trim(),
+                            radius = radiusMeters.toFloat(),
+                            points = points
+                        ).also(mapVm::updateSafeZoneArea)
+                    }
                     mapVm.setMarkerMode(null)
                     if (sessionState.activeGameCode.isNotBlank()) {
                         scope.launch {
-                            gameMapRepo.upsertTacticalMarker(sessionState.activeGameCode, marker)
+                            gameMapRepo.upsertSafeZoneArea(sessionState.activeGameCode, area)
                         }
                     }
-                    safeZonePosition = null
+                    safeZoneEditorCenter = null
+                    safeZoneEditorTarget = null
                 }
             )
         }
@@ -748,7 +824,8 @@ private fun PortraitMapLayout(
     onMapClick: (LatLng) -> Unit,
     onMapLongClick: (LatLng) -> Unit,
     onTacticalMarkerClick: (TacticalMarker) -> Unit,
-    onDynamicObjectiveClick: (DynamicObjective) -> Unit
+    onDynamicObjectiveClick: (DynamicObjective) -> Unit,
+    onSafeZoneAreaClick: (SafeZoneArea) -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         TacticalGoogleMap(
@@ -763,7 +840,8 @@ private fun PortraitMapLayout(
             onMapClick = onMapClick,
             onMapLongClick = onMapLongClick,
             onTacticalMarkerClick = onTacticalMarkerClick,
-            onDynamicObjectiveClick = onDynamicObjectiveClick
+            onDynamicObjectiveClick = onDynamicObjectiveClick,
+            onSafeZoneAreaClick = onSafeZoneAreaClick
         )
         if (state.gridVisible) Canvas(Modifier.fillMaxSize()) { drawTacticalGrid(this) }
         MapHud(
@@ -796,7 +874,8 @@ private fun LandscapeMapLayout(
     onMapClick: (LatLng) -> Unit,
     onMapLongClick: (LatLng) -> Unit,
     onTacticalMarkerClick: (TacticalMarker) -> Unit,
-    onDynamicObjectiveClick: (DynamicObjective) -> Unit
+    onDynamicObjectiveClick: (DynamicObjective) -> Unit,
+    onSafeZoneAreaClick: (SafeZoneArea) -> Unit
 ) {
     Row(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
@@ -812,7 +891,8 @@ private fun LandscapeMapLayout(
                 onMapClick = onMapClick,
                 onMapLongClick = onMapLongClick,
                 onTacticalMarkerClick = onTacticalMarkerClick,
-                onDynamicObjectiveClick = onDynamicObjectiveClick
+                onDynamicObjectiveClick = onDynamicObjectiveClick,
+                onSafeZoneAreaClick = onSafeZoneAreaClick
             )
             if (state.gridVisible) Canvas(Modifier.fillMaxSize()) { drawTacticalGrid(this) }
             androidx.compose.animation.AnimatedVisibility(
@@ -863,7 +943,8 @@ private fun TacticalGoogleMap(
     onMapClick: (LatLng) -> Unit,
     onMapLongClick: (LatLng) -> Unit,
     onTacticalMarkerClick: (TacticalMarker) -> Unit,
-    onDynamicObjectiveClick: (DynamicObjective) -> Unit
+    onDynamicObjectiveClick: (DynamicObjective) -> Unit,
+    onSafeZoneAreaClick: (SafeZoneArea) -> Unit
 ) {
     val tacticalIcons: Map<String, BitmapDescriptor> =
         if (mapLoaded) rememberTacticalMarkerIcons() else emptyMap()
@@ -899,6 +980,36 @@ private fun TacticalGoogleMap(
                 state = MarkerState(position = player.position),
                 title = player.name,
                 icon = tacticalIcons[iconKey]
+            )
+        }
+
+        state.safeZoneAreas.forEach { area ->
+            if (area.points.size >= 3) {
+                Polygon(
+                    points = area.points,
+                    fillColor = NatoGreen.copy(alpha = 0.20f),
+                    strokeColor = NatoGreen,
+                    strokeWidth = 5f
+                )
+            } else {
+                Circle(
+                    center = area.center,
+                    radius = area.radius.toDouble(),
+                    fillColor = NatoGreen.copy(alpha = 0.20f),
+                    strokeColor = NatoGreen,
+                    strokeWidth = 5f
+                )
+            }
+            Marker(
+                state = MarkerState(position = area.center),
+                title = area.name,
+                snippet = "Zona segura - radio ${area.radius.toInt()} m",
+                icon = tacticalIcons["safe_zone"],
+                onClick = {
+                    onSafeZoneAreaClick(area)
+                    true
+                },
+                onInfoWindowLongClick = { onSafeZoneAreaClick(area) }
             )
         }
 
@@ -1179,6 +1290,51 @@ private fun TacticalMarkerActionCard(
 }
 
 @Composable
+private fun SafeZoneActionCard(
+    modifier: Modifier,
+    area: SafeZoneArea,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xEE101810)),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(area.name, color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Limite visible - radio ${area.radius.toInt()} m",
+                        color = Color.LightGray,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White)
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onEdit) {
+                    Text("Modificar zona segura")
+                }
+                Button(
+                    onClick = onDelete,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Eliminar")
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ObjectiveEditorDialog(
     objective: DynamicObjective?,
     position: LatLng,
@@ -1278,16 +1434,19 @@ private fun ObjectiveEditorDialog(
 
 @Composable
 private fun SafeZoneEditorDialog(
+    area: SafeZoneArea?,
     onDismiss: () -> Unit,
     onSave: (String, Double) -> Unit
 ) {
-    var label by remember { mutableStateOf("Zona segura") }
-    var radiusText by remember { mutableStateOf("25") }
+    var label by remember(area?.id) { mutableStateOf(area?.name ?: "Zona segura") }
+    var radiusText by remember(area?.id) {
+        mutableStateOf(area?.radius?.toInt()?.toString() ?: "25")
+    }
     val radius = radiusText.toDoubleOrNull()?.coerceIn(5.0, 250.0)
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Zona segura") },
+        title = { Text(if (area == null) "Zona segura" else "Modificar zona segura") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
@@ -1307,7 +1466,7 @@ private fun SafeZoneEditorDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
                 Text(
-                    "Se dibujara un limite circular visible para todos los jugadores.",
+                    "Se guardara como area segura con limite visible para todos los jugadores.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1410,6 +1569,22 @@ private fun drawTacticalGrid(scope: DrawScope) {
     }
     for (y in 0..(size.height / step).toInt()) {
         scope.drawLine(GridColor, Offset(0f, y * step), Offset(size.width, y * step))
+    }
+}
+
+private fun buildCircularSafeZoneBoundary(
+    center: LatLng,
+    radiusMeters: Double,
+    segments: Int = 36
+): List<LatLng> {
+    val latitudeRadius = radiusMeters / 111_320.0
+    val longitudeRadius = radiusMeters / (111_320.0 * max(0.2, abs(cos(center.latitude * PI / 180.0))))
+    return List(segments) { index ->
+        val angle = (2.0 * PI * index) / segments
+        LatLng(
+            center.latitude + latitudeRadius * sin(angle),
+            center.longitude + longitudeRadius * cos(angle)
+        )
     }
 }
 
